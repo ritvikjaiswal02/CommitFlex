@@ -1,4 +1,0 @@
-allowBuilds:
-  esbuild: false
-  msw: false
-  unrs-resolver: true
