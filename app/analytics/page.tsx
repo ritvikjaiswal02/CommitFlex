@@ -51,7 +51,7 @@ export default async function AnalyticsPage() {
             Analytics
           </h1>
           <p className="font-mono text-label-caps uppercase tracking-widest text-on-surface-variant mt-1">
-            ID_SESSION: {(session.user.id ?? '').slice(0, 8).toUpperCase()} // PERFORMANCE_REPORT
+            ID_SESSION: {(session.user.id ?? '').slice(0, 8).toUpperCase()} {'//'} PERFORMANCE_REPORT
           </p>
         </div>
         <div className="flex items-center gap-sm">

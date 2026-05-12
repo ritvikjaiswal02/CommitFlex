@@ -181,7 +181,7 @@ export function LandingContent() {
             {PIPELINE.map(s => (
               <div key={s.n} className="glass-card glass-card-hover rounded-xl p-lg flex flex-col gap-sm">
                 <p className="font-mono text-code-sm text-primary">
-                  {s.n} <span className="text-on-surface-variant">// {s.tag}</span>
+                  {s.n} <span className="text-on-surface-variant">{'//'} {s.tag}</span>
                 </p>
                 <h3 className="font-display text-base font-bold text-on-surface mt-2">{s.title}</h3>
                 <p className="text-code-sm text-on-surface-variant leading-relaxed">{s.body}</p>
