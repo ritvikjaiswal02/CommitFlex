@@ -150,7 +150,7 @@ describe('PostCard', () => {
   it('regenerate button calls replace API and updates content', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ draft: { content: 'Regenerated content' } }),
+      json: async () => ({ draft: { originalContent: 'Regenerated content' } }),
     })
     render(<PostCard {...defaultProps} />)
     // Regenerate button has title="Regenerate" (SVG icon, no text label)

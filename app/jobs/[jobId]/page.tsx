@@ -8,6 +8,7 @@ import { PostCard } from '@/components/post-card'
 interface Draft {
   id: string
   platform: string
+  sequenceNumber: number
   originalContent: string
   editedContent: string | null
   platformMetadata: { hashtags?: string[]; callToAction?: string }
@@ -252,8 +253,20 @@ function MagicMoment({ job }: { job: Job }) {
 }
 
 function DraftEditor({ job, drafts, onRefresh }: { job: Job; drafts: Draft[]; onRefresh: () => void }) {
-  const linkedin = drafts.find(d => d.platform === 'linkedin')
-  const twitter = drafts.find(d => d.platform === 'twitter')
+  const groupVariants = (platform: 'linkedin' | 'twitter') =>
+    drafts
+      .filter(d => d.platform === platform)
+      .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+      .map(d => ({
+        id: d.id,
+        sequenceNumber: d.sequenceNumber,
+        content: d.editedContent ?? d.originalContent,
+        hashtags: d.platformMetadata?.hashtags ?? [],
+        status: d.status,
+      }))
+
+  const linkedinVariants = groupVariants('linkedin')
+  const twitterVariants = groupVariants('twitter')
 
   return (
     <div className="space-y-lg">
@@ -296,24 +309,20 @@ function DraftEditor({ job, drafts, onRefresh }: { job: Job; drafts: Draft[]; on
 
       {/* Split: editor | preview */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-lg">
-        {linkedin && (
+        {linkedinVariants.length > 0 && (
           <PostCard
-            draftId={linkedin.id}
             platform="linkedin"
-            content={linkedin.editedContent ?? linkedin.originalContent}
-            hashtags={linkedin.platformMetadata?.hashtags ?? []}
-            status={linkedin.status}
+            variants={linkedinVariants}
             onCopied={onRefresh}
+            onVariantsCreated={onRefresh}
           />
         )}
-        {twitter && (
+        {twitterVariants.length > 0 && (
           <PostCard
-            draftId={twitter.id}
             platform="twitter"
-            content={twitter.editedContent ?? twitter.originalContent}
-            hashtags={twitter.platformMetadata?.hashtags ?? []}
-            status={twitter.status}
+            variants={twitterVariants}
             onCopied={onRefresh}
+            onVariantsCreated={onRefresh}
           />
         )}
       </div>

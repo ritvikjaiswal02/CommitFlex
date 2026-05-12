@@ -1,4 +1,4 @@
-import { eq, and, isNull } from 'drizzle-orm'
+import { eq, and, isNull, asc, desc } from 'drizzle-orm'
 import { createHash } from 'crypto'
 import { db } from '@/lib/db/client'
 import { postDrafts } from '@/lib/db/schema'
@@ -51,6 +51,51 @@ export async function updateDraftContent(id: string, content: string) {
 
 export async function markDraftCopied(id: string) {
   await db.update(postDrafts).set({ status: 'copied', updatedAt: new Date() }).where(eq(postDrafts.id, id))
+}
+
+/**
+ * Returns all live drafts for a given (job, platform), ordered by sequenceNumber.
+ * Used to display variant tabs in the editor.
+ */
+export async function getDraftVariantsByPlatform(jobId: string, platform: 'linkedin' | 'twitter') {
+  return db.select().from(postDrafts)
+    .where(and(
+      eq(postDrafts.jobId, jobId),
+      eq(postDrafts.platform, platform),
+      isNull(postDrafts.deletedAt),
+    ))
+    .orderBy(asc(postDrafts.sequenceNumber))
+}
+
+/**
+ * Append additional variant drafts for an existing (job, platform). Continues the
+ * sequence-number counter from the current max so the UI can tab between them.
+ */
+export async function appendDraftVariants(
+  jobId: string,
+  userId: string,
+  platform: 'linkedin' | 'twitter',
+  variants: Array<{ content: string; hashtags: string[]; callToAction?: string }>,
+) {
+  if (variants.length === 0) return []
+  const [latest] = await db.select({ seq: postDrafts.sequenceNumber }).from(postDrafts)
+    .where(and(eq(postDrafts.jobId, jobId), eq(postDrafts.platform, platform)))
+    .orderBy(desc(postDrafts.sequenceNumber))
+    .limit(1)
+  const startSeq = (latest?.seq ?? 0) + 1
+  const rows = variants.map((v, i) => ({
+    jobId,
+    userId,
+    generationModel: 'gemini-1.5-pro',
+    platform,
+    sequenceNumber: startSeq + i,
+    status: 'generated' as const,
+    originalContent: v.content,
+    contentHash: hashContent(v.content),
+    generationStage: `${platform}_variant`,
+    platformMetadata: { hashtags: v.hashtags, callToAction: v.callToAction } as Record<string, unknown>,
+  }))
+  return db.insert(postDrafts).values(rows).returning()
 }
 
 export async function replaceDraft(

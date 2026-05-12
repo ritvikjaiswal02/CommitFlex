@@ -13,6 +13,10 @@ Voice settings:
 - Technical level: {{technicalLevel}}
 - Audience: {{audience}}
 
+{{extraContext}}
+
+{{toneOverrides}}
+
 Narrative:
 {{narrative}}
 
