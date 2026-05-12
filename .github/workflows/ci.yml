@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      DATABASE_URL: postgresql://user:password@ep-placeholder-123456.us-east-2.aws.neon.tech/neondb?sslmode=require
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ci_secret_not_real
+      GITHUB_CLIENT_ID: placeholder
+      GITHUB_CLIENT_SECRET: placeholder
+      ANTHROPIC_API_KEY: placeholder
+      OAUTH_TOKEN_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm tsc --noEmit
+
+      - name: Unit tests
+        run: pnpm vitest run
+
+      - name: Build
+        run: pnpm build

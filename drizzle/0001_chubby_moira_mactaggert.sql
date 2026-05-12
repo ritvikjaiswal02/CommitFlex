@@ -1,0 +1,1 @@
+ALTER TABLE "extracted_narratives" ALTER COLUMN "summary_id" DROP NOT NULL;
