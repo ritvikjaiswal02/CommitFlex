@@ -1,6 +1,7 @@
 import { updateJobStatus, incrementRetry } from '@/lib/db/queries/jobs'
 import { getVoiceSettings } from '@/lib/db/queries/voice'
 import { emitEvent } from '@/lib/db/queries/events'
+import { notifyJobComplete } from './notify'
 import { stageFetch } from './stages/fetch'
 import { stageSummarize } from './stages/summarize'
 import { stageNarrative } from './stages/narrative'
@@ -46,6 +47,7 @@ export async function runPipeline(
     if (commits.length === 0) {
       await updateJobStatus(job.id, 'completed')
       await emitEvent(job.id, 'completed', { reason: 'no_commits' })
+      await notifyJobComplete(job.id)
       return
     }
 
@@ -64,6 +66,7 @@ export async function runPipeline(
     const finalStatus = partial ? 'partial_completed' : 'completed'
     await updateJobStatus(job.id, finalStatus)
     await emitEvent(job.id, 'completed', { status: finalStatus })
+    await notifyJobComplete(job.id)
   } catch (err) {
     await updateJobStatus(job.id, 'failed')
     await emitEvent(job.id, 'failed', { error: String(err) })

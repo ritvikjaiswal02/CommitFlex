@@ -163,6 +163,28 @@ export const aiGenerationLogs = pgTable('ai_generation_logs', {
   createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
 }, (t) => ({ jobIdx: index('logs_job_idx').on(t.jobId) }))
 
+export const userNotificationPreferences = pgTable('user_notification_preferences', {
+  userId: text('userId').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  emailOnComplete: boolean('email_on_complete').notNull().default(true),
+  weeklyDigest: boolean('weekly_digest').notNull().default(false),
+  productUpdates: boolean('product_updates').notNull().default(false),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+})
+
+export const emailLog = pgTable('email_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('userId').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  jobId: uuid('job_id').references(() => generationJobs.id, { onDelete: 'set null' }),
+  kind: varchar('kind', { length: 50 }).notNull(),
+  sentAt: timestamp('sent_at', { mode: 'date' }).notNull().defaultNow(),
+  deliveryStatus: varchar('delivery_status', { length: 30 }).notNull().default('queued'),
+  providerMessageId: text('provider_message_id'),
+  errorMessage: text('error_message'),
+}, (t) => ({
+  userKindIdx: index('email_log_user_kind_idx').on(t.userId, t.kind),
+  jobKindIdx: index('email_log_job_kind_idx').on(t.jobId, t.kind),
+}))
+
 export const pipelineEvents = pgTable('pipeline_events', {
   id: uuid('id').primaryKey().defaultRandom(),
   jobId: uuid('job_id').notNull().references(() => generationJobs.id, { onDelete: 'cascade' }),

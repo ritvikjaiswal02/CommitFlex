@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 
@@ -77,47 +77,101 @@ interface PrefsState {
 }
 
 export function NotificationsCard() {
-  // Local-only preferences for now — schema doesn't track these yet.
-  const [prefs, setPrefs] = useState<PrefsState>({
-    emailOnComplete: true,
-    weeklyDigest: false,
-    productUpdates: false,
-  })
+  const [prefs, setPrefs] = useState<PrefsState | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
-  const toggle = (k: keyof PrefsState) => setPrefs(p => ({ ...p, [k]: !p[k] }))
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/notifications')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled) return
+        if (data?.prefs) {
+          setPrefs({
+            emailOnComplete: !!data.prefs.emailOnComplete,
+            weeklyDigest: !!data.prefs.weeklyDigest,
+            productUpdates: !!data.prefs.productUpdates,
+          })
+        } else {
+          setPrefs({ emailOnComplete: true, weeklyDigest: false, productUpdates: false })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPrefs({ emailOnComplete: true, weeklyDigest: false, productUpdates: false })
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const persist = async (next: PrefsState) => {
+    setSaveState('saving')
+    try {
+      const res = await fetch('/api/notifications', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      })
+      if (!res.ok) throw new Error()
+      setSaveState('saved')
+      setTimeout(() => setSaveState(s => (s === 'saved' ? 'idle' : s)), 1500)
+    } catch {
+      setSaveState('error')
+    }
+  }
+
+  const toggle = (k: keyof PrefsState) => {
+    if (!prefs) return
+    const next = { ...prefs, [k]: !prefs[k] }
+    setPrefs(next)
+    void persist(next)
+  }
 
   const rows: { key: keyof PrefsState; title: string; desc: string }[] = [
-    { key: 'emailOnComplete', title: 'Generation completed',   desc: 'Email me when a job finishes.' },
-    { key: 'weeklyDigest',    title: 'Weekly digest',          desc: 'Roundup of last week’s drafts every Monday.' },
-    { key: 'productUpdates',  title: 'Product updates',        desc: 'Occasional news about new features.' },
+    { key: 'emailOnComplete', title: 'Generation completed', desc: 'Email me when a job finishes.' },
+    { key: 'weeklyDigest',    title: 'Weekly digest',        desc: 'Roundup of last week’s drafts every Monday.' },
+    { key: 'productUpdates',  title: 'Product updates',      desc: 'Occasional news about new features.' },
   ]
 
   return (
     <div className="glass-card rounded-xl p-lg space-y-md">
-      {rows.map(r => (
-        <label key={r.key} className="flex items-center justify-between gap-md cursor-pointer">
-          <div>
-            <p className="text-sm text-on-surface">{r.title}</p>
-            <p className="font-mono text-code-sm text-on-surface-variant mt-0.5">{r.desc}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => toggle(r.key)}
-            aria-pressed={prefs[r.key]}
-            className={`relative h-6 w-11 rounded-full transition-colors shrink-0 ${
-              prefs[r.key] ? 'bg-primary' : 'bg-white/10'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                prefs[r.key] ? 'translate-x-5' : 'translate-x-0'
+      {loading || !prefs ? (
+        <p className="font-mono text-code-sm text-outline-variant py-2">Loading preferences…</p>
+      ) : (
+        rows.map(r => (
+          <label key={r.key} className="flex items-center justify-between gap-md cursor-pointer">
+            <div>
+              <p className="text-sm text-on-surface">{r.title}</p>
+              <p className="font-mono text-code-sm text-on-surface-variant mt-0.5">{r.desc}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => toggle(r.key)}
+              aria-pressed={prefs[r.key]}
+              className={`relative h-6 w-11 rounded-full transition-colors shrink-0 ${
+                prefs[r.key] ? 'bg-primary' : 'bg-white/10'
               }`}
-            />
-          </button>
-        </label>
-      ))}
-      <p className="font-mono text-code-sm text-outline-variant pt-2 border-t border-white/8">
-        Stored locally for now — server-side delivery rolling out soon.
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  prefs[r.key] ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </label>
+        ))
+      )}
+      <p className="font-mono text-code-sm text-outline-variant pt-2 border-t border-white/8 flex items-center justify-between">
+        <span>Changes save automatically.</span>
+        <span className={
+          saveState === 'saving' ? 'text-on-surface-variant' :
+          saveState === 'saved'  ? 'text-tertiary' :
+          saveState === 'error'  ? 'text-error' : 'text-outline-variant'
+        }>
+          {saveState === 'saving' ? 'Saving…' :
+           saveState === 'saved'  ? 'Saved' :
+           saveState === 'error'  ? 'Save failed' : ''}
+        </span>
       </p>
     </div>
   )

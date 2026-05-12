@@ -15,6 +15,13 @@
       "when": 1778195120325,
       "tag": "0001_chubby_moira_mactaggert",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778614939306,
+      "tag": "0002_curved_swordsman",
+      "breakpoints": true
     }
   ]
 }
