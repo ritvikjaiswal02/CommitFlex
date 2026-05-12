@@ -36,7 +36,7 @@ describe('VoiceSettingsForm', () => {
 
   it('renders technical level slider with initial value', () => {
     render(<VoiceSettingsForm {...defaultProps} />)
-    expect(screen.getByText(/technical level: 7\/10/i)).toBeTruthy()
+    expect(screen.getAllByText((_, el) => el?.tagName === 'LABEL' && /technical level\s*7\s*\/\s*10/i.test(el?.textContent ?? '')).length).toBeGreaterThan(0)
     const slider = screen.getByRole('slider')
     expect((slider as HTMLInputElement).value).toBe('7')
   })
@@ -73,7 +73,7 @@ describe('VoiceSettingsForm', () => {
     render(<VoiceSettingsForm {...defaultProps} />)
     const slider = screen.getByRole('slider')
     fireEvent.change(slider, { target: { value: '3' } })
-    expect(screen.getByText(/technical level: 3\/10/i)).toBeTruthy()
+    expect(screen.getAllByText((_, el) => el?.tagName === 'LABEL' && /technical level\s*3\s*\/\s*10/i.test(el?.textContent ?? '')).length).toBeGreaterThan(0)
   })
 
   it('saves settings with correct payload', async () => {

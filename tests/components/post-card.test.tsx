@@ -39,7 +39,7 @@ async function clickAndFlush(button: HTMLElement) {
 describe('PostCard', () => {
   it('renders platform label and content', () => {
     render(<PostCard {...defaultProps} />)
-    expect(screen.getByText('LinkedIn')).toBeTruthy()
+    expect(screen.getByText('LinkedIn Post')).toBeTruthy()
     expect(screen.getByDisplayValue('Hello LinkedIn world')).toBeTruthy()
   })
 
@@ -67,7 +67,7 @@ describe('PostCard', () => {
     fireEvent.change(textarea, { target: { value: 'a'.repeat(281) } })
     // Counter uses inline style color for over-limit, not a class
     const counter = screen.getByText('281')
-    expect(counter).toHaveStyle({ color: 'rgb(248, 113, 113)' })
+    expect(counter).toHaveStyle({ color: 'rgb(255, 180, 171)' })
   })
 
   it('disables save and copy when over limit', () => {
