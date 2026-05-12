@@ -6,7 +6,7 @@ const VoiceSettingsSchema = z.object({
   tone: z.string().min(1).max(50),
   technicalLevel: z.number().int().min(1).max(10),
   audience: z.string().min(1).max(100),
-  extraContext: z.string().max(500).optional(),
+  extraContext: z.string().max(2000).optional(),
 })
 
 export async function GET() {
