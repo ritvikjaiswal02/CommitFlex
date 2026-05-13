@@ -35,6 +35,27 @@ export async function getRepo(id: string) {
   return repo ?? null
 }
 
+/**
+ * Look up a connected repo by its GitHub numeric ID. Used by the webhook
+ * endpoint where the only stable identifier is `repository.id` from the
+ * push payload — `fullName` can change on rename.
+ */
+export async function getRepoByGithubRepoId(githubRepoId: number) {
+  const [repo] = await db.select().from(repos)
+    .where(and(eq(repos.githubRepoId, githubRepoId), isNull(repos.deletedAt)))
+    .limit(1)
+  return repo ?? null
+}
+
+export async function updateRepoWebhook(id: string, fields: {
+  webhookSecret?: string | null
+  webhookId?: number | null
+  autoGenerate?: boolean
+}) {
+  const [repo] = await db.update(repos).set(fields).where(eq(repos.id, id)).returning()
+  return repo
+}
+
 export async function softDeleteRepo(id: string) {
   await db.update(repos).set({ deletedAt: new Date(), isActive: false }).where(eq(repos.id, id))
 }

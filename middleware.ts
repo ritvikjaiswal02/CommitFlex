@@ -1,7 +1,7 @@
 import { auth } from '@/auth'
 import { NextResponse } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/api/auth']
+const PUBLIC_PATHS = ['/login', '/api/auth', '/api/webhooks']
 const PUBLIC_EXACT = new Set(['/'])
 
 export default auth((req) => {
