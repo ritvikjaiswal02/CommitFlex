@@ -21,6 +21,13 @@ interface Job {
   windowStart: string
   windowEnd: string
   commitCount?: number
+  errorMessage?: string | null
+}
+
+interface Repo {
+  id: string
+  fullName: string
+  defaultBranch: string
 }
 
 const PIPELINE: { key: string; label: string; step: number }[] = [
@@ -114,27 +121,25 @@ function ReasoningLog({ status, commitCount }: { status: string; commitCount?: n
   )
 }
 
-function GenerationTarget({ status }: { status: string }) {
-  const step = STAGE_STEP[status] ?? 0
-  const tokenizing = step >= 2 ? 84 : step === 1 ? 32 : 0
-  const embedding = step >= 3 ? 76 : step >= 2 ? 12 : 0
+function GenerationTarget({ repo, job }: { repo: Repo | null; job: Job }) {
+  const range = `${new Date(job.windowStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${new Date(job.windowEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
 
   return (
     <div className="glass-card rounded-xl p-lg flex flex-col gap-lg">
       <div>
         <h3 className="font-mono text-label-caps uppercase tracking-widest text-on-surface-variant mb-md">
-          Generation Target
+          What we&apos;re working on
         </h3>
         <div className="flex items-center gap-md">
-          <div className="w-10 h-10 rounded-md bg-primary/10 ring-1 ring-primary/30 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-md bg-primary/10 ring-1 ring-primary/30 flex items-center justify-center shrink-0">
             <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.6}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3M6.75 15.75h.008v.008H6.75v-.008zM4.5 4.5a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15z"/>
             </svg>
           </div>
-          <div>
-            <p className="font-mono text-sm text-on-surface">main-repo/core-service</p>
+          <div className="min-w-0">
+            <p className="font-mono text-sm text-on-surface truncate">{repo?.fullName ?? 'Repository'}</p>
             <p className="font-mono text-code-sm text-on-surface-variant">
-              Last activity: 2 mins ago
+              Commits from {range}
             </p>
           </div>
         </div>
@@ -142,73 +147,50 @@ function GenerationTarget({ status }: { status: string }) {
 
       <div>
         <p className="font-mono text-label-caps uppercase tracking-widest text-on-surface-variant mb-sm">
-          Social Profiles
+          What you&apos;ll get
         </p>
-        <div className="flex gap-sm">
-          <span className="chip chip-primary normal-case">X (Twitter)</span>
-          <span className="chip chip-secondary normal-case">LinkedIn</span>
-        </div>
-      </div>
-
-      <div>
-        <p className="font-mono text-label-caps uppercase tracking-widest text-on-surface-variant mb-sm">
-          Processing Speed
-        </p>
-        <div className="space-y-2">
-          {[
-            { label: 'Tokenizing', value: tokenizing, color: 'bg-primary' },
-            { label: 'Embedding',  value: embedding,  color: 'bg-secondary' },
-          ].map(b => (
-            <div key={b.label}>
-              <div className="flex justify-between font-mono text-code-sm">
-                <span className="text-on-surface-variant">{b.label}</span>
-                <span className="text-on-surface">{b.value}%</span>
-              </div>
-              <div className="h-1 rounded-full bg-white/8 mt-1 overflow-hidden">
-                <div className={`h-full ${b.color} rounded-full transition-all duration-700`} style={{ width: `${b.value}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
+        <ul className="space-y-2 text-code-sm text-on-surface-variant">
+          <li className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+            One LinkedIn post — long-form, thoughtful
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-secondary shrink-0" />
+            One Twitter / X post — punchy, scannable
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-tertiary shrink-0" />
+            You can regenerate or tweak after
+          </li>
+        </ul>
       </div>
 
       <div className="rounded-md border border-primary/20 bg-gradient-to-br from-primary/10 to-transparent p-md">
-        <p className="font-mono text-label-caps uppercase tracking-widest text-primary mb-1">Pro Tip</p>
+        <p className="font-mono text-label-caps uppercase tracking-widest text-primary mb-1">Tip</p>
         <p className="text-code-sm text-on-surface-variant leading-relaxed">
-          Include your system/ticketing system IDs in commit messages for better AI context extraction.
+          Mention ticket numbers (e.g. <span className="font-mono text-on-surface">#1234</span>) in your commit
+          messages — the AI will reference them so readers can click through.
         </p>
       </div>
     </div>
   )
 }
 
-function MagicMoment({ job }: { job: Job }) {
+function MagicMoment({ job, repo }: { job: Job; repo: Repo | null }) {
   const step = STAGE_STEP[job.status] ?? 0
 
   return (
     <div className="space-y-xl">
-      {/* Top metrics bar */}
-      <div className="flex flex-wrap items-center justify-between gap-md border-b border-white/8 pb-md">
-        <div className="flex items-center gap-md font-mono text-code-sm">
-          <span className="flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />
-            <span className="uppercase tracking-widest text-primary">Live Processing</span>
-          </span>
-          <span className="text-outline-variant">·</span>
-          <span className="uppercase tracking-widest text-on-surface-variant">
-            ID: GEN-{job.id.slice(0, 8).toUpperCase()}
-          </span>
-        </div>
-        <div className="flex items-center gap-lg font-mono text-code-sm">
-          <span>
-            <span className="text-outline-variant uppercase tracking-widest">Est. Remaining </span>
-            <span className="text-on-surface">~ 42s</span>
-          </span>
-          <span>
-            <span className="text-outline-variant uppercase tracking-widest">Compute </span>
-            <span className="text-tertiary">~0.04 credits</span>
-          </span>
-        </div>
+      {/* Top status bar */}
+      <div className="flex flex-wrap items-center gap-md border-b border-white/8 pb-md font-mono text-code-sm">
+        <span className="flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />
+          <span className="uppercase tracking-widest text-primary">Live</span>
+        </span>
+        <span className="text-outline-variant">·</span>
+        <span className="uppercase tracking-widest text-on-surface-variant">
+          Job {job.id.slice(0, 8)}
+        </span>
       </div>
 
       {/* Headline */}
@@ -245,7 +227,7 @@ function MagicMoment({ job }: { job: Job }) {
           <ReasoningLog status={job.status} commitCount={job.commitCount} />
         </div>
         <div className="col-span-12 lg:col-span-4">
-          <GenerationTarget status={job.status} />
+          <GenerationTarget repo={repo} job={job} />
         </div>
       </div>
     </div>
@@ -297,8 +279,18 @@ function DraftEditor({ job, drafts, onRefresh }: { job: Job; drafts: Draft[]; on
 
       {/* Status banners */}
       {job.status === 'failed' && (
-        <div className="glass-card rounded-xl px-4 py-3 font-mono text-code-sm text-error" style={{ borderColor: 'rgba(255,180,171,0.4)' }}>
-          Generation failed. Try again from the dashboard.
+        <div className="rounded-xl border border-error/40 bg-error/5 px-4 py-3 space-y-1">
+          <p className="font-mono text-code-sm text-error">
+            Generation failed.
+          </p>
+          {job.errorMessage && (
+            <p className="font-mono text-code-sm text-on-surface-variant break-words">
+              {job.errorMessage}
+            </p>
+          )}
+          <p className="font-mono text-code-sm text-on-surface-variant">
+            <Link href="/dashboard" className="text-primary hover:underline">Try again from the dashboard →</Link>
+          </p>
         </div>
       )}
       {job.status === 'partial_completed' && (
@@ -333,6 +325,7 @@ function DraftEditor({ job, drafts, onRefresh }: { job: Job; drafts: Draft[]; on
 export default function JobPage() {
   const { jobId } = useParams<{ jobId: string }>()
   const [job, setJob] = useState<Job | null>(null)
+  const [repo, setRepo] = useState<Repo | null>(null)
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -344,6 +337,7 @@ export default function JobPage() {
       if (!res.ok) throw new Error('Failed to load job')
       const data = await res.json()
       setJob(data.job)
+      setRepo(data.repo ?? null)
       setDrafts(data.drafts ?? [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
@@ -357,6 +351,7 @@ export default function JobPage() {
     if (res.ok) {
       const data = await res.json()
       setJob(data.job)
+      setRepo(data.repo ?? null)
       setDrafts(data.drafts ?? [])
     }
   }, [jobId])
@@ -423,7 +418,7 @@ export default function JobPage() {
 
       <main className="max-w-7xl mx-auto px-margin py-xl">
         {isActive
-          ? <MagicMoment job={job} />
+          ? <MagicMoment job={job} repo={repo} />
           : <DraftEditor job={job} drafts={drafts} onRefresh={refresh} />
         }
       </main>

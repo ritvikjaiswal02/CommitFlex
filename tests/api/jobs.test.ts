@@ -25,6 +25,14 @@ vi.mock('@/lib/auth/require-owner', () => ({
   requireRepoOwner: vi.fn(),
   ownershipErrorToResponse: vi.fn().mockReturnValue(null),
 }))
+vi.mock('@/lib/db/queries/repos', () => ({
+  getRepo: vi.fn(),
+  getUserRepos: vi.fn(),
+  createRepo: vi.fn(),
+  softDeleteRepo: vi.fn(),
+  getRepoByGithubRepoId: vi.fn(),
+  updateRepoWebhook: vi.fn(),
+}))
 
 const JOB_ID = 'job-uuid-5678'
 const mockJob = { id: JOB_ID, userId: 'user-1', repoId: 'repo-1', status: 'completed' }

@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+
+const LAST_REPO_KEY = 'cf:last-repo-id'
 
 interface Repo {
   id: string
@@ -47,6 +49,25 @@ export function GenerateForm({ repos }: GenerateFormProps) {
   const [windowEnd, setWindowEnd] = useState(defaults.end)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Hydrate the last-used repo from localStorage on mount, but only if it's
+  // still in the connected list. Falls back to the first repo otherwise.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(LAST_REPO_KEY)
+      if (saved && repos.some(r => r.id === saved)) {
+        setRepoId(saved)
+      }
+    } catch {
+      // localStorage unavailable (private mode, etc.) — ignore.
+    }
+  }, [repos])
+
+  // Persist on change so the next visit remembers.
+  const selectRepo = (id: string) => {
+    setRepoId(id)
+    try { window.localStorage.setItem(LAST_REPO_KEY, id) } catch { /* ignore */ }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -96,7 +117,7 @@ export function GenerateForm({ repos }: GenerateFormProps) {
           <div className="relative">
             <select
               value={repoId}
-              onChange={e => setRepoId(e.target.value)}
+              onChange={e => selectRepo(e.target.value)}
               className={`${inputClass} appearance-none pr-8 font-mono`}
             >
               {repos.map(r => (

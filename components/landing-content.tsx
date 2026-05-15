@@ -70,10 +70,6 @@ export function LandingContent() {
         {/* Vignette to fade hero edges into the page */}
         <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(ellipse at center, transparent 40%, #0A0A0A 90%)' }} />
         <div className="relative max-w-5xl mx-auto px-margin py-20 text-center">
-          <div className="inline-flex items-center gap-2 chip chip-primary mb-md">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />
-            Now supporting GitHub Actions
-          </div>
           <h1 className="font-display text-[64px] md:text-[80px] leading-[0.95] tracking-[-0.04em] font-bold text-on-surface text-balance">
             Turn GitHub commits into content{' '}
             <span className="text-primary italic">people actually read.</span>
