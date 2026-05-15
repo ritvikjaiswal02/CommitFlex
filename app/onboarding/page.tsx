@@ -5,21 +5,37 @@ import { getVoiceSettings } from '@/lib/db/queries/voice'
 import { OnboardingStepper } from '@/components/onboarding-stepper'
 import Link from 'next/link'
 
-export default async function OnboardingPage() {
+interface PageProps {
+  searchParams?: { add?: string }
+}
+
+export default async function OnboardingPage({ searchParams }: PageProps) {
   const session = await auth()
   const isAuthenticated = !!session?.user?.id
 
+  const addMode = searchParams?.add === '1'
+
   let voice: Awaited<ReturnType<typeof getVoiceSettings>> = null
+  let existingGithubRepoIds: string[] = []
   if (isAuthenticated) {
     const repos = await getUserRepos(session.user.id!)
-    if (repos.length > 0) redirect('/dashboard')
+    // Initial onboarding only — once a user has repos, "Initialize" is done.
+    // The "add more" flow (?add=1) lets them re-enter to connect more.
+    if (repos.length > 0 && !addMode) redirect('/dashboard')
     voice = await getVoiceSettings(session.user.id!)
+    existingGithubRepoIds = repos.map(r => String(r.githubRepoId))
+  } else if (addMode) {
+    // Can't add repos without an account — bounce to login.
+    redirect('/login')
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col bg-background relative overflow-hidden">
+      {/* Ambient glow */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[500px] cf-glow-primary pointer-events-none opacity-60" />
+
       {/* Top bar */}
-      <header className="flex items-center justify-between px-margin py-md border-b border-white/8">
+      <header className="relative z-10 flex items-center justify-between px-margin py-md border-b border-white/8">
         <Link href="/" className="font-display text-base font-bold tracking-tighter text-on-surface">
           Commit<span className="text-primary">Flex</span>
           <span className="font-mono text-[10px] uppercase tracking-widest text-primary ml-2 align-middle">BETA</span>
@@ -31,16 +47,18 @@ export default async function OnboardingPage() {
       </header>
 
       {/* Content */}
-      <main className="flex-1 px-margin py-xl">
+      <main className="relative z-10 flex-1 px-margin py-xl">
         <OnboardingStepper
           isAuthenticated={isAuthenticated}
           defaultTone={voice?.tone}
           defaultExtraContext={voice?.extraContext ?? ''}
+          addMode={addMode}
+          existingGithubRepoIds={existingGithubRepoIds}
         />
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/8 px-margin py-md flex items-center justify-between">
+      <footer className="relative z-10 border-t border-white/8 px-margin py-md flex items-center justify-between">
         <p className="font-mono text-code-sm text-on-surface-variant">
           Commit<span className="text-primary">Flex</span> · © 2026 CommitFlex. Built for the elite.
         </p>

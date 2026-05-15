@@ -28,7 +28,9 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden cf-grid-bg bg-background">
-      {/* Ambient AI glow */}
+      {/* Drifting aurora — adds depth without movement */}
+      <div className="absolute inset-0 cf-aurora pointer-events-none" />
+      {/* Concentrated glow behind the logo */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none w-[720px] h-[480px] cf-glow-primary" />
 
       <div className="relative z-10 w-full max-w-[440px] px-5 animate-slide-up">

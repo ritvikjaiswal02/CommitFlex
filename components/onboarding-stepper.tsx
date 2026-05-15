@@ -6,11 +6,15 @@ import { signIn } from 'next-auth/react'
 
 type Step = 'connect' | 'repository' | 'voice' | 'identity'
 
-const STEPS: { key: Step; label: string }[] = [
+const FULL_STEPS: { key: Step; label: string }[] = [
   { key: 'connect',    label: 'Connect' },
   { key: 'repository', label: 'Repository' },
   { key: 'voice',      label: 'Voice' },
   { key: 'identity',   label: 'Identity' },
+]
+
+const ADD_STEPS: { key: Step; label: string }[] = [
+  { key: 'repository', label: 'Pick repos' },
 ]
 
 interface GithubRepo {
@@ -46,13 +50,25 @@ interface OnboardingStepperProps {
   isAuthenticated: boolean
   defaultTone?: string
   defaultExtraContext?: string
+  /** Skip Connect/Voice/Identity — used when the user is back to add more repos. */
+  addMode?: boolean
+  /** GitHub repo IDs the user has already connected — hidden from the picker. */
+  existingGithubRepoIds?: string[]
 }
 
-export function OnboardingStepper({ isAuthenticated, defaultTone, defaultExtraContext }: OnboardingStepperProps) {
+export function OnboardingStepper({
+  isAuthenticated,
+  defaultTone,
+  defaultExtraContext,
+  addMode = false,
+  existingGithubRepoIds = [],
+}: OnboardingStepperProps) {
   const router = useRouter()
 
+  const STEPS = addMode ? ADD_STEPS : FULL_STEPS
+
   // Determine starting step
-  const [step, setStep] = useState<Step>(isAuthenticated ? 'repository' : 'connect')
+  const [step, setStep] = useState<Step>(addMode || isAuthenticated ? 'repository' : 'connect')
 
   // Repository state
   const [repos, setRepos] = useState<GithubRepo[]>([])
@@ -85,7 +101,10 @@ export function OnboardingStepper({ isAuthenticated, defaultTone, defaultExtraCo
   }, [step, isAuthenticated, repos.length, reposLoading])
 
   const stepIndex = STEPS.findIndex(s => s.key === step)
-  const filteredRepos = repos.filter(r => r.fullName.toLowerCase().includes(repoQuery.toLowerCase()))
+  const existingSet = new Set(existingGithubRepoIds.map(String))
+  const filteredRepos = repos
+    .filter(r => !existingSet.has(String(r.githubRepoId)))
+    .filter(r => r.fullName.toLowerCase().includes(repoQuery.toLowerCase()))
 
   const toggleRepo = (id: string) => {
     setSelectedRepoIds(prev => {
@@ -135,26 +154,29 @@ export function OnboardingStepper({ isAuthenticated, defaultTone, defaultExtraCo
         }
       }
 
-      // 2. Save voice settings
-      const tone = PERSONA_TO_TONE[persona] ?? 'professional'
-      const ctxBits: string[] = []
-      if (markdownOn) ctxBits.push('Use markdown formatting.')
-      if (noJargon) ctxBits.push('Avoid jargon.')
-      const composedContext = [extraContext.trim(), ctxBits.join(' ')].filter(Boolean).join('\n\n')
+      // 2. Save voice settings — only on initial onboarding. In add-more mode
+      //    the user already has a voice profile they don't want overwritten.
+      if (!addMode) {
+        const tone = PERSONA_TO_TONE[persona] ?? 'professional'
+        const ctxBits: string[] = []
+        if (markdownOn) ctxBits.push('Use markdown formatting.')
+        if (noJargon) ctxBits.push('Avoid jargon.')
+        const composedContext = [extraContext.trim(), ctxBits.join(' ')].filter(Boolean).join('\n\n')
 
-      const voiceRes = await fetch('/api/voice', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tone,
-          technicalLevel: persona === 'technical' ? 9 : persona === 'casual' ? 4 : 7,
-          audience: persona === 'founder' ? 'engineering leaders' : persona === 'educator' ? 'general tech' : 'developers',
-          extraContext: composedContext,
-        }),
-      })
-      if (!voiceRes.ok) throw new Error('Failed to save voice profile')
+        const voiceRes = await fetch('/api/voice', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tone,
+            technicalLevel: persona === 'technical' ? 9 : persona === 'casual' ? 4 : 7,
+            audience: persona === 'founder' ? 'engineering leaders' : persona === 'educator' ? 'general tech' : 'developers',
+            extraContext: composedContext,
+          }),
+        })
+        if (!voiceRes.ok) throw new Error('Failed to save voice profile')
+      }
 
-      router.push('/dashboard')
+      router.push(addMode ? '/repositories' : '/dashboard')
       router.refresh()
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Something went wrong')
@@ -194,10 +216,16 @@ export function OnboardingStepper({ isAuthenticated, defaultTone, defaultExtraCo
 
       <div className="text-center mb-xl">
         <h1 className="font-display text-display-lg font-bold text-on-surface tracking-tighter">
-          Initialize <span className="text-primary">CommitFlex</span>
+          {addMode ? (
+            <>Connect more <span className="text-primary">repos</span></>
+          ) : (
+            <>Initialize <span className="text-primary">CommitFlex</span></>
+          )}
         </h1>
         <p className="text-on-surface-variant mt-sm max-w-md mx-auto">
-          Connect your GitHub account so we can read your commits and generate posts in your voice.
+          {addMode
+            ? 'Pick the repositories you want CommitFlex to watch. Already-connected ones are filtered out.'
+            : 'Connect your GitHub account so we can read your commits and generate posts in your voice.'}
         </p>
       </div>
 
@@ -375,20 +403,33 @@ export function OnboardingStepper({ isAuthenticated, defaultTone, defaultExtraCo
 
       {/* Footer nav */}
       <div className="flex items-center justify-between mt-xl pt-md border-t border-white/8">
-        <button
-          onClick={prev}
-          disabled={stepIndex === 0}
-          className="font-mono text-code-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-30"
-        >
-          ← Back to previous
-        </button>
-        {step === 'identity' ? (
+        {addMode ? (
+          <button
+            onClick={() => router.push('/repositories')}
+            className="font-mono text-code-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors"
+          >
+            ← Cancel
+          </button>
+        ) : (
+          <button
+            onClick={prev}
+            disabled={stepIndex === 0}
+            className="font-mono text-code-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-30"
+          >
+            ← Back to previous
+          </button>
+        )}
+        {(addMode && step === 'repository') || step === 'identity' ? (
           <button
             onClick={handleFinish}
             disabled={submitting || selectedRepoIds.size === 0}
             className="btn-primary-solid h-11 px-6 rounded-xl text-sm disabled:opacity-50"
           >
-            {submitting ? 'Finishing...' : 'Finish Onboarding'}
+            {submitting
+              ? (addMode ? 'Connecting…' : 'Finishing...')
+              : (addMode
+                  ? `Connect ${selectedRepoIds.size || ''} repo${selectedRepoIds.size === 1 ? '' : 's'}`.trim()
+                  : 'Finish Onboarding')}
           </button>
         ) : (
           <button

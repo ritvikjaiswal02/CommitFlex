@@ -53,7 +53,7 @@ export function LandingContent() {
             </Link>
             <button
               onClick={() => signIn('github', { callbackUrl: '/dashboard' })}
-              className="bg-primary text-on-primary font-bold rounded-md px-4 py-2 text-xs hover:bg-primary-container transition-colors"
+              className="btn-primary-violet rounded-md px-4 py-2 text-xs"
             >
               Get Started
             </button>
@@ -62,8 +62,13 @@ export function LandingContent() {
       </header>
 
       {/* Hero */}
-      <section className="relative overflow-hidden cf-grid-bg">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[500px] cf-glow-primary pointer-events-none" />
+      <section className="relative overflow-hidden cf-grid-bg cf-beam">
+        {/* Aurora — soft drifting gradient, GPU-rendered */}
+        <div className="absolute inset-0 cf-aurora pointer-events-none" />
+        {/* Concentrated violet glow behind the headline */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1100px] h-[600px] cf-glow-primary pointer-events-none" />
+        {/* Vignette to fade hero edges into the page */}
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(ellipse at center, transparent 40%, #0A0A0A 90%)' }} />
         <div className="relative max-w-5xl mx-auto px-margin py-20 text-center">
           <div className="inline-flex items-center gap-2 chip chip-primary mb-md">
             <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />

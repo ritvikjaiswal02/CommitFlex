@@ -21,10 +21,10 @@ export default async function RepositoriesPage() {
           </p>
         </div>
         <Link
-          href="/onboarding"
+          href="/onboarding?add=1"
           className="btn-primary-solid h-10 px-4 rounded-xl text-sm inline-flex items-center gap-2"
         >
-          + Connect repo
+          + Connect repos
         </Link>
       </header>
 

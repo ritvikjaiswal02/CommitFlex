@@ -120,10 +120,10 @@ export function RepoManager({ repos: initialRepos }: RepoManagerProps) {
       })}
       {error && <p className="font-mono text-code-sm text-error">{error}</p>}
       <button
-        onClick={() => router.push('/onboarding')}
+        onClick={() => router.push('/onboarding?add=1')}
         className="btn-ghost w-full h-10 rounded-lg text-sm font-mono text-on-surface-variant"
       >
-        + Connect another repository
+        + Connect more repositories
       </button>
     </div>
   )

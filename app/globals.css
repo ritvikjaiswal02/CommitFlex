@@ -46,7 +46,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .glass-card {
     background: var(--surface-1);
     border: 1px solid var(--border-subtle);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   }
   .glass-card-hover:hover,
   .glass-card.interactive:hover {
@@ -61,24 +61,54 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
     border-color: rgba(208, 188, 255, 0.20) !important;
   }
 
-  /* Primary button — solid white, black text */
+  /* Primary button — solid white, black text. Lifts + halos on hover. */
   .btn-primary-solid {
     background: #ffffff;
     color: #0a0a0a;
     font-weight: 600;
-    transition: transform 0.15s ease, background 0.15s ease;
+    transition: transform 0.18s ease, background 0.15s ease, box-shadow 0.18s ease;
+    will-change: transform, box-shadow;
   }
-  .btn-primary-solid:hover { background: #e5e5e5; }
-  .btn-primary-solid:active { transform: translateY(1px); }
+  .btn-primary-solid:hover:not(:disabled) {
+    background: #f4f4f4;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 30px -6px rgba(255, 255, 255, 0.25),
+                0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  }
+  .btn-primary-solid:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px -2px rgba(255, 255, 255, 0.2);
+  }
 
-  /* Ghost / secondary button */
+  /* Primary-violet button — for primary-coloured CTAs like "Get Started" */
+  .btn-primary-violet {
+    background: var(--primary);
+    color: #3c0091;
+    font-weight: 700;
+    transition: transform 0.18s ease, background 0.15s ease, box-shadow 0.18s ease;
+  }
+  .btn-primary-violet:hover:not(:disabled) {
+    background: #e0d0ff;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 28px -6px rgba(208, 188, 255, 0.45),
+                0 0 0 1px rgba(208, 188, 255, 0.5) inset;
+  }
+  .btn-primary-violet:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  /* Ghost / secondary button — subtle violet edge on hover */
   .btn-ghost {
     background: transparent;
     color: var(--foreground);
     border: 1px solid var(--border-subtle);
-    transition: background 0.15s ease, border-color 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.18s ease;
   }
-  .btn-ghost:hover { background: rgba(255,255,255,0.05); border-color: var(--border-hover); }
+  .btn-ghost:hover:not(:disabled) {
+    background: rgba(208, 188, 255, 0.05);
+    border-color: rgba(208, 188, 255, 0.35);
+    box-shadow: 0 0 24px -8px rgba(208, 188, 255, 0.25);
+  }
 
   /* Chip / tag */
   .chip {
@@ -108,11 +138,41 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
     background-size: 52px 52px;
   }
 
+  /* Subtle dotted lattice for hero/landing backgrounds */
+  .cf-dots-bg {
+    background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
   .cf-glow-primary {
-    background: radial-gradient(ellipse, rgba(208,188,255,0.15) 0%, transparent 70%);
+    background: radial-gradient(ellipse at center, rgba(208,188,255,0.22) 0%, rgba(208,188,255,0.05) 35%, transparent 70%);
   }
   .cf-glow-secondary {
-    background: radial-gradient(ellipse, rgba(173,198,255,0.12) 0%, transparent 70%);
+    background: radial-gradient(ellipse at center, rgba(173,198,255,0.18) 0%, transparent 60%);
+  }
+
+  /* Aurora — soft moving gradient for hero backdrops. Pure CSS, GPU-friendly. */
+  .cf-aurora {
+    background:
+      radial-gradient(circle at 20% 20%, rgba(208,188,255,0.18), transparent 40%),
+      radial-gradient(circle at 80% 30%, rgba(173,198,255,0.14), transparent 45%),
+      radial-gradient(circle at 50% 80%, rgba(255,184,105,0.10), transparent 50%);
+    animation: aurora-drift 16s ease-in-out infinite alternate;
+    filter: blur(60px);
+  }
+
+  /* Horizontal hairline beam that pulses — for section dividers / hero accent */
+  .cf-beam {
+    position: relative;
+  }
+  .cf-beam::after {
+    content: '';
+    position: absolute;
+    inset-inline: 20%;
+    bottom: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(208,188,255,0.6), transparent);
+    animation: beam-pulse 4s ease-in-out infinite;
   }
 
   .platform-linkedin { border-left: 2px solid #adc6ff; }
@@ -136,3 +196,24 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   50% { opacity: 0; }
 }
 .animate-blink { animation: blink 1s step-end infinite; }
+
+@keyframes aurora-drift {
+  0%   { transform: translate3d(-3%, -2%, 0) scale(1); opacity: 0.85; }
+  50%  { transform: translate3d(2%, 3%, 0) scale(1.08); opacity: 1; }
+  100% { transform: translate3d(-1%, 1%, 0) scale(1.02); opacity: 0.9; }
+}
+
+@keyframes beam-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cf-aurora,
+  .cf-beam::after,
+  .animate-pulse-dot,
+  .animate-slide-up,
+  .animate-blink {
+    animation: none;
+  }
+}
