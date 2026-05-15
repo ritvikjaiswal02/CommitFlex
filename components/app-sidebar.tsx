@@ -9,7 +9,6 @@ interface AppSidebarProps {
   userName: string | null | undefined
   userEmail: string | null | undefined
   userImage?: string | null
-  plan?: string
 }
 
 interface NavItem {
@@ -31,7 +30,7 @@ const Icon = {
   Logout:  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/></svg>,
 }
 
-export function AppSidebar({ userName, userEmail, userImage, plan = 'Pro Plan' }: AppSidebarProps) {
+export function AppSidebar({ userName, userEmail, userImage }: AppSidebarProps) {
   const pathname = usePathname()
 
   const items: NavItem[] = [
@@ -49,9 +48,12 @@ export function AppSidebar({ userName, userEmail, userImage, plan = 'Pro Plan' }
     <aside className="hidden lg:flex fixed left-0 top-0 z-40 h-screen w-64 flex-col gap-lg p-md border-r border-white/8 bg-surface-container-lowest">
       {/* Brand + User */}
       <div className="flex flex-col gap-sm">
-        <h1 className="font-display text-[22px] font-black tracking-tighter text-on-surface">
+        <Link
+          href="/dashboard"
+          className="font-display text-[22px] font-black tracking-tighter text-on-surface hover:opacity-90 transition-opacity"
+        >
           Commit<span className="text-primary">Flex</span>
-        </h1>
+        </Link>
         <div className="flex items-center gap-sm mt-1">
           <div className="w-8 h-8 rounded-full bg-primary/20 ring-1 ring-primary/30 flex items-center justify-center overflow-hidden shrink-0">
             {userImage ? (
@@ -63,7 +65,9 @@ export function AppSidebar({ userName, userEmail, userImage, plan = 'Pro Plan' }
           </div>
           <div className="min-w-0">
             <p className="text-sm font-bold text-on-surface truncate">{display}</p>
-            <p className="font-mono text-[10px] uppercase tracking-widest text-primary">{plan}</p>
+            {userEmail && (
+              <p className="font-mono text-[10px] text-on-surface-variant truncate">{userEmail}</p>
+            )}
           </div>
         </div>
       </div>
@@ -148,10 +152,9 @@ export function AppShell({
       <AppSidebar userName={user.name} userEmail={user.email} userImage={user.image} />
       {/* Mobile top bar */}
       <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-5 py-3 border-b border-white/8 bg-background/80 backdrop-blur-md">
-        <span className="font-display text-base font-bold tracking-tighter text-on-surface">
+        <Link href="/dashboard" className="font-display text-base font-bold tracking-tighter text-on-surface">
           Commit<span className="text-primary">Flex</span>
-        </span>
-        <span className="font-mono text-[10px] uppercase tracking-widest text-primary">Pro</span>
+        </Link>
       </header>
       <main className="lg:ml-64 min-h-screen pb-24">
         <div className="p-5 md:p-margin">{children}</div>

@@ -194,21 +194,6 @@ export function DashboardBento({ drafts, activity, history }: BentoProps) {
           </div>
         </div>
 
-        {/* Upgrade promo */}
-        <div className="relative overflow-hidden glass-card p-lg rounded-xl flex flex-col gap-sm bg-gradient-to-br from-primary/10 to-transparent border-primary/20">
-          <div className="z-10 relative">
-            <h4 className="font-display text-sm font-bold text-on-surface">Upgrade to Pro</h4>
-            <p className="text-code-sm text-on-surface-variant leading-relaxed mt-sm">
-              Unlimited repos, fine-tuned voice, scheduled posting, and team workspaces.
-            </p>
-            <button className="mt-md py-sm px-md bg-primary text-on-primary font-bold rounded-lg text-xs hover:bg-primary-container transition-colors">
-              Explore Pro
-            </button>
-          </div>
-          <svg className="absolute -right-4 -bottom-4 w-32 h-32 text-primary opacity-10 rotate-12" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M9.315 7.584C12.195 3.883 16.695 1.5 21.75 1.5a.75.75 0 01.75.75c0 5.056-2.383 9.555-6.084 12.436A6.75 6.75 0 019.75 22.5a.75.75 0 01-.75-.75v-4.131A15.838 15.838 0 016.382 15H2.25a.75.75 0 01-.75-.75 6.75 6.75 0 017.815-6.666zM15 6.75a2.25 2.25 0 100 4.5 2.25 2.25 0 000-4.5z"/>
-          </svg>
-        </div>
       </aside>
     </div>
   )

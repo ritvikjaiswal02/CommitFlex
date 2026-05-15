@@ -18,34 +18,6 @@ const PIPELINE = [
   { n: '04', tag: 'SHIP',    title: 'Auto-Draft',    body: 'Receive a Discord ping with a pre-written draft ready to publish globally.' },
 ]
 
-const PRICING = [
-  {
-    name: 'Community',
-    price: '$0',
-    sub: 'Forever free for hobbyists.',
-    features: ['1 Repository', '5 Posts / month'],
-    cta: 'Choose Plan',
-    highlighted: false,
-  },
-  {
-    name: 'Pro Developer',
-    price: '$19',
-    period: '/mo',
-    sub: 'For active shipping.',
-    features: ['Unlimited Repositories', 'Unlimited Drafts', 'Custom Personas', 'API Access'],
-    cta: 'Get Started',
-    highlighted: true,
-  },
-  {
-    name: 'Enterprise',
-    price: 'Custom',
-    sub: 'For high-growth teams.',
-    features: ['GitHub Enterprise Support', 'Brand Voice Training', 'Dedicated Support'],
-    cta: 'Contact Sales',
-    highlighted: false,
-  },
-]
-
 const TESTIMONIALS = [
   {
     quote: 'I haven\'t manually written a "ship" post in 3 months. CommitFlex captures the technical nuance better than I can when I\'m tired after a release.',
@@ -70,9 +42,7 @@ export function LandingContent() {
           </Link>
           <nav className="hidden md:flex items-center gap-lg font-mono text-code-sm text-on-surface-variant">
             <a href="#how" className="hover:text-on-surface transition-colors">How It Works</a>
-            <a href="#pricing" className="hover:text-on-surface transition-colors">Pricing</a>
             <a href="#" className="hover:text-on-surface transition-colors">Docs</a>
-            <a href="#" className="hover:text-on-surface transition-colors">Enterprise</a>
           </nav>
           <div className="flex items-center gap-sm">
             <Link
@@ -185,61 +155,6 @@ export function LandingContent() {
                 </p>
                 <h3 className="font-display text-base font-bold text-on-surface mt-2">{s.title}</h3>
                 <p className="text-code-sm text-on-surface-variant leading-relaxed">{s.body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing */}
-      <section id="pricing" className="border-t border-white/8 py-20">
-        <div className="max-w-5xl mx-auto px-margin">
-          <h2 className="font-display text-headline-md font-bold text-on-surface text-center">
-            Pricing Plans
-          </h2>
-          <p className="text-on-surface-variant text-center mt-2">
-            Simple, developer-first licensing.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-md mt-xl">
-            {PRICING.map(p => (
-              <div
-                key={p.name}
-                className={`relative glass-card rounded-xl p-lg flex flex-col gap-md ${
-                  p.highlighted ? 'border-primary/40 bg-gradient-to-br from-primary/10 to-transparent' : ''
-                }`}
-              >
-                {p.highlighted && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 chip chip-primary">
-                    Most Popular
-                  </span>
-                )}
-                <p className="font-mono text-label-caps uppercase tracking-widest text-on-surface-variant">
-                  {p.name}
-                </p>
-                <p className="font-display text-display-lg font-bold tracking-tighter text-on-surface">
-                  {p.price}{p.period && <span className="text-base text-on-surface-variant">{p.period}</span>}
-                </p>
-                <p className="text-code-sm text-on-surface-variant">{p.sub}</p>
-                <ul className="space-y-2 mt-md flex-1">
-                  {p.features.map(f => (
-                    <li key={f} className="flex items-center gap-2 text-code-sm text-on-surface">
-                      <svg className="w-3.5 h-3.5 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                      </svg>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  onClick={() => p.cta === 'Contact Sales' ? null : signIn('github', { callbackUrl: '/dashboard' })}
-                  className={`mt-md h-11 rounded-xl text-sm font-bold transition-colors ${
-                    p.highlighted
-                      ? 'bg-primary text-on-primary hover:bg-primary-container'
-                      : 'btn-ghost'
-                  }`}
-                >
-                  {p.cta}
-                </button>
               </div>
             ))}
           </div>
