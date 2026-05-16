@@ -78,6 +78,11 @@ export const generationJobs = pgTable('generation_jobs', {
   status: varchar('status', { length: 30 }).notNull().default('queued'),
   commitCount: integer('commit_count').notNull().default(0),
   filteredCount: integer('filtered_count').notNull().default(0),
+  // Origin of the commits we're summarising. 'window' is the classic date range,
+  // 'pr' targets a single pull request, 'release' compares against the prior tag.
+  sourceType: varchar('source_type', { length: 20 }).notNull().default('window'),
+  // Free-form ref: PR URL when sourceType='pr', release tag name when 'release'.
+  sourceRef: text('source_ref'),
   windowStart: timestamp('window_start', { mode: 'date' }).notNull(),
   windowEnd: timestamp('window_end', { mode: 'date' }).notNull(),
   retryCount: integer('retry_count').notNull().default(0),

@@ -29,6 +29,13 @@
       "when": 1778636712456,
       "tag": "0003_fancy_corsair",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778925373555,
+      "tag": "0004_cold_talisman",
+      "breakpoints": true
     }
   ]
 }

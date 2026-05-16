@@ -8,6 +8,8 @@ export type PipelineEventType =
   | 'retry_triggered' | 'validation_failed' | 'job_cancelled'
   | 'completed' | 'failed'
 
+export type JobSourceType = 'window' | 'pr' | 'release'
+
 export interface GenerationJob {
   id: string
   userId: string
@@ -15,6 +17,8 @@ export interface GenerationJob {
   status: GenerationJobStatus
   commitCount: number
   filteredCount: number
+  sourceType: JobSourceType
+  sourceRef?: string | null
   windowStart: Date
   windowEnd: Date
   retryCount: number

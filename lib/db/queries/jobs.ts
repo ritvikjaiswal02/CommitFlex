@@ -3,17 +3,23 @@ import { db } from '@/lib/db/client'
 import { generationJobs } from '@/lib/db/schema'
 import type { GenerationJobStatus } from '@/types/jobs'
 
+export type JobSourceType = 'window' | 'pr' | 'release'
+
 export async function createJob(params: {
   userId: string
   repoId: string
   windowStart: Date
   windowEnd: Date
+  sourceType?: JobSourceType
+  sourceRef?: string | null
 }) {
   const [job] = await db.insert(generationJobs).values({
     userId: params.userId,
     repoId: params.repoId,
     windowStart: params.windowStart,
     windowEnd: params.windowEnd,
+    sourceType: params.sourceType ?? 'window',
+    sourceRef: params.sourceRef ?? null,
     status: 'queued',
   }).returning()
   return job

@@ -22,7 +22,8 @@ export async function POST(req: Request) {
   const parsed = CreateJobSchema.safeParse(body)
   if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 })
 
-  const { repoId, windowStart, windowEnd } = parsed.data
+  const input = parsed.data
+  const { repoId } = input
 
   try {
     const repo = await requireRepoOwner(repoId, session.user.id)
@@ -40,7 +41,43 @@ export async function POST(req: Request) {
       return Response.json({ error: 'No GitHub account connected' }, { status: 400 })
     }
 
-    const job = await createJob({ userId: session.user.id, repoId, windowStart: new Date(windowStart), windowEnd: new Date(windowEnd) })
+    // Decide sourceType + window bookends. For PR/release jobs the window is
+    // metadata only — the fetch stage will read sourceType + sourceRef and
+    // pull commits from the right place. Wide windows here keep any
+    // legacy filtering happy.
+    let sourceType: 'window' | 'pr' | 'release' = 'window'
+    let sourceRef: string | null = null
+    let windowStart: Date
+    let windowEnd: Date
+
+    if (!('source' in input) || input.source === 'window') {
+      windowStart = new Date(input.windowStart)
+      windowEnd = new Date(input.windowEnd)
+    } else if (input.source === 'pr') {
+      sourceType = 'pr'
+      sourceRef = input.prUrl
+      const oneYearAgo = new Date()
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
+      windowStart = oneYearAgo
+      windowEnd = new Date()
+    } else {
+      // release
+      sourceType = 'release'
+      sourceRef = input.releaseTag
+      const oneYearAgo = new Date()
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
+      windowStart = oneYearAgo
+      windowEnd = new Date()
+    }
+
+    const job = await createJob({
+      userId: session.user.id,
+      repoId,
+      windowStart,
+      windowEnd,
+      sourceType,
+      sourceRef,
+    })
 
     const repoUrl = repo.url ?? `https://github.com/${repo.fullName}`
     // Fire-and-forget pipeline — response returns immediately
