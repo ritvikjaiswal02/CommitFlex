@@ -36,6 +36,13 @@
       "when": 1778925373555,
       "tag": "0004_cold_talisman",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778925937623,
+      "tag": "0005_known_night_thrasher",
+      "breakpoints": true
     }
   ]
 }

@@ -62,14 +62,21 @@ export const repos = pgTable('repos', {
 
 export const voiceSettings = pgTable('voice_settings', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: text('userId').notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  // Multiple profiles per user — was unique, now indexed only. The
+  // "default" profile is the one used at generation time; users can switch
+  // it from the settings UI or the dashboard picker.
+  userId: text('userId').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 60 }).notNull().default('Default'),
+  isDefault: boolean('is_default').notNull().default(true),
   tone: varchar('tone', { length: 50 }).notNull().default('professional'),
   technicalLevel: integer('technical_level').notNull().default(7),
   audience: varchar('audience', { length: 100 }).notNull().default('developers'),
   extraContext: text('extra_context'),
   createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
-})
+}, (t) => ({
+  userIdx: index('voice_profiles_user_idx').on(t.userId),
+}))
 
 export const generationJobs = pgTable('generation_jobs', {
   id: uuid('id').primaryKey().defaultRandom(),

@@ -4,9 +4,9 @@ import { eq, and } from 'drizzle-orm'
 import Link from 'next/link'
 import { db } from '@/lib/db/client'
 import { accounts } from '@/lib/db/schema'
-import { getVoiceSettings } from '@/lib/db/queries/voice'
+import { listVoiceProfiles, upsertVoiceSettings } from '@/lib/db/queries/voice'
 import { getUserRepos } from '@/lib/db/queries/repos'
-import { VoiceSettingsForm } from '@/components/voice-settings-form'
+import { VoiceProfileManager } from '@/components/voice-profile-manager'
 import { RepoManager } from '@/components/repo-manager'
 import { AppShell } from '@/components/app-sidebar'
 import {
@@ -30,14 +30,25 @@ export default async function SettingsPage() {
 
   const userId = session.user.id
 
-  const [voice, repos, githubAccount] = await Promise.all([
-    getVoiceSettings(userId),
+  const [initialProfiles, repos, githubAccount] = await Promise.all([
+    listVoiceProfiles(userId),
     getUserRepos(userId),
     db.select({ providerAccountId: accounts.providerAccountId, scope: accounts.scope })
       .from(accounts)
       .where(and(eq(accounts.userId, userId), eq(accounts.provider, 'github')))
       .limit(1),
   ])
+  let profiles = initialProfiles
+
+  // First-run seed: every account gets a Default profile so the form is never empty.
+  if (profiles.length === 0) {
+    await upsertVoiceSettings(userId, {
+      tone: 'professional',
+      technicalLevel: 7,
+      audience: 'developers',
+    })
+    profiles = await listVoiceProfiles(userId)
+  }
 
   return (
     <AppShell user={{ name: session.user.name, email: session.user.email, image: session.user.image }}>
@@ -62,16 +73,22 @@ export default async function SettingsPage() {
           />
         </section>
 
-        {/* Voice profile */}
+        {/* Voice profiles */}
         <section className="space-y-md">
-          <SectionHeader label="Voice profile" hint="How you write — the AI uses this to match your tone." />
+          <SectionHeader
+            label="Voice profiles"
+            hint="Multiple voices — switch the default for different posting styles."
+          />
           <div className="glass-card rounded-xl overflow-hidden p-lg">
-            <VoiceSettingsForm
-              initialTone={voice?.tone ?? 'professional'}
-              initialTechnicalLevel={voice?.technicalLevel ?? 7}
-              initialAudience={voice?.audience ?? 'developers'}
-              initialExtraContext={voice?.extraContext ?? ''}
-            />
+            <VoiceProfileManager initialProfiles={profiles.map(p => ({
+              id: p.id,
+              name: p.name,
+              isDefault: p.isDefault,
+              tone: p.tone,
+              technicalLevel: p.technicalLevel,
+              audience: p.audience,
+              extraContext: p.extraContext,
+            }))} />
           </div>
         </section>
 
@@ -95,7 +112,7 @@ export default async function SettingsPage() {
             <Link href="/repositories" className="text-primary hover:underline">
               Repositories
             </Link>{' '}or{' '}
-            <Link href="/onboarding" className="text-primary hover:underline">
+            <Link href="/onboarding?add=1" className="text-primary hover:underline">
               connect a new one
             </Link>.
           </p>
