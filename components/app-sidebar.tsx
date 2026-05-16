@@ -74,7 +74,7 @@ export function AppSidebar({ userName, userEmail, userImage }: AppSidebarProps) 
 
       {/* + New Generation */}
       <Link
-        href="/dashboard?new=1"
+        href="/dashboard"
         className="btn-primary-solid w-full h-10 rounded-xl text-sm flex items-center justify-center gap-2"
       >
         {Icon.Plus}

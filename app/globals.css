@@ -8,9 +8,13 @@
   --surface-1: #141414;
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-hover: rgba(255, 255, 255, 0.20);
+  /* Palette: one hero accent (violet) + one supporting (cool blue).
+     Warm tones (amber/red) are reserved for status semantics only — never
+     decorative — so the UI stops feeling like a stoplight. */
   --primary: #d0bcff;
   --secondary: #adc6ff;
   --tertiary: #ffb869;
+  --success: #86efac;
 }
 
 html, body {
@@ -51,7 +55,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .glass-card-hover:hover,
   .glass-card.interactive:hover {
     border-color: var(--border-hover);
-    box-shadow: 0 -1px 15px -5px rgba(208, 188, 255, 0.30);
+    box-shadow: 0 -1px 12px -6px rgba(208, 188, 255, 0.18);
   }
 
   /* AI focus / "top-lit" cinematic glow on the top edge */
@@ -72,8 +76,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .btn-primary-solid:hover:not(:disabled) {
     background: #f4f4f4;
     transform: translateY(-1px);
-    box-shadow: 0 8px 30px -6px rgba(255, 255, 255, 0.25),
-                0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+    box-shadow: 0 6px 20px -8px rgba(255, 255, 255, 0.18);
   }
   .btn-primary-solid:active:not(:disabled) {
     transform: translateY(0);
@@ -90,8 +93,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .btn-primary-violet:hover:not(:disabled) {
     background: #e0d0ff;
     transform: translateY(-1px);
-    box-shadow: 0 8px 28px -6px rgba(208, 188, 255, 0.45),
-                0 0 0 1px rgba(208, 188, 255, 0.5) inset;
+    box-shadow: 0 6px 22px -8px rgba(208, 188, 255, 0.32);
   }
   .btn-primary-violet:active:not(:disabled) {
     transform: translateY(0);
@@ -126,6 +128,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .chip-primary   { background: rgba(208,188,255,0.10); color: var(--primary); }
   .chip-secondary { background: rgba(173,198,255,0.10); color: var(--secondary); }
   .chip-tertiary  { background: rgba(255,184,105,0.10); color: var(--tertiary); }
+  .chip-success   { background: rgba(134,239,172,0.10); color: var(--success); }
+  .chip-neutral   { background: rgba(255,255,255,0.06); color: #cbc3d7; }
 }
 
 @layer utilities {
@@ -151,14 +155,14 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
     background: radial-gradient(ellipse at center, rgba(173,198,255,0.18) 0%, transparent 60%);
   }
 
-  /* Aurora — soft moving gradient for hero backdrops. Pure CSS, GPU-friendly. */
+  /* Aurora — soft drifting gradient. Two cool tones only (violet + blue) so the
+     hero doesn't feel like a stoplight; warm accents are reserved for status. */
   .cf-aurora {
     background:
-      radial-gradient(circle at 20% 20%, rgba(208,188,255,0.18), transparent 40%),
-      radial-gradient(circle at 80% 30%, rgba(173,198,255,0.14), transparent 45%),
-      radial-gradient(circle at 50% 80%, rgba(255,184,105,0.10), transparent 50%);
-    animation: aurora-drift 16s ease-in-out infinite alternate;
-    filter: blur(60px);
+      radial-gradient(circle at 22% 24%, rgba(208,188,255,0.14), transparent 44%),
+      radial-gradient(circle at 78% 36%, rgba(173,198,255,0.10), transparent 48%);
+    animation: aurora-drift 20s ease-in-out infinite alternate;
+    filter: blur(72px);
   }
 
   /* Horizontal hairline beam that pulses — for section dividers / hero accent */

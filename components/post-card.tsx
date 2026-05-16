@@ -215,7 +215,7 @@ export function PostCard(props: PostCardProps) {
           </span>
           <span className={`chip ${cfg.chip}`}>{cfg.label}</span>
           {copied && (
-            <span className="flex items-center gap-1 chip chip-tertiary normal-case">
+            <span className="flex items-center gap-1 chip chip-success normal-case">
               <CheckIcon /> Copied
             </span>
           )}
@@ -324,7 +324,7 @@ export function PostCard(props: PostCardProps) {
           onClick={handleSave}
           disabled={saving || overLimit || !active.id}
           className="btn-ghost flex-1 h-9 rounded-lg font-mono text-label-caps uppercase flex items-center justify-center gap-1.5 disabled:opacity-40"
-          style={saved ? { background: 'rgba(255,184,105,0.10)', color: '#ffb869', borderColor: 'rgba(255,184,105,0.3)' } : undefined}
+          style={saved ? { background: 'rgba(134,239,172,0.10)', color: '#86efac', borderColor: 'rgba(134,239,172,0.3)' } : undefined}
         >
           {saved ? <><CheckIcon /> Saved</> : saving ? 'Saving...' : 'Save'}
         </button>

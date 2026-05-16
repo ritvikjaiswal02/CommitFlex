@@ -78,7 +78,7 @@ export function RepoManager({ repos: initialRepos }: RepoManagerProps) {
                   />
                 )}
                 <span className="font-mono text-sm text-on-surface truncate">{repo.fullName}</span>
-                {repo.isPrivate && <span className="chip chip-tertiary">Private</span>}
+                {repo.isPrivate && <span className="chip chip-neutral">Private</span>}
               </div>
               <button
                 onClick={() => handleRemove(repo.id)}

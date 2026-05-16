@@ -78,10 +78,22 @@ describe('normalizeGeneratedPost', () => {
     expect(result.platform).toBe('linkedin')
   })
 
-  it('throws if twitter post > 280 chars', () => {
-    expect(() =>
-      normalizeGeneratedPost({ content: 'x'.repeat(281), hashtags: [] }, 'twitter')
-    ).toThrow('280')
+  it('soft-truncates twitter posts that exceed 280 chars', () => {
+    const result = normalizeGeneratedPost(
+      { content: 'x'.repeat(400), hashtags: [] },
+      'twitter',
+    )
+    expect(result.content.length).toBeLessThanOrEqual(280)
+    expect(result.content.endsWith('…')).toBe(true)
+  })
+
+  it('truncates at a word boundary when possible', () => {
+    const long = 'word '.repeat(80).trim() // 80 words, way over 280 chars
+    const result = normalizeGeneratedPost({ content: long, hashtags: [] }, 'twitter')
+    expect(result.content.length).toBeLessThanOrEqual(280)
+    // Should not chop in the middle of "word" — last visible char before the
+    // ellipsis should be a letter, not a stray fragment.
+    expect(result.content).toMatch(/(word|word…|word\s*…)$/)
   })
 
   it('accepts twitter post <= 280 chars', () => {

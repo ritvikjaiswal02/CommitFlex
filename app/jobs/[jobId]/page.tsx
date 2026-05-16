@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { PostCard } from '@/components/post-card'
 
@@ -234,7 +234,80 @@ function MagicMoment({ job, repo }: { job: Job; repo: Repo | null }) {
   )
 }
 
-function DraftEditor({ job, drafts, onRefresh }: { job: Job; drafts: Draft[]; onRefresh: () => void }) {
+function RegeneratePanel({ repo, currentWindow }: { repo: Repo | null; currentWindow: { start: string; end: string } }) {
+  const router = useRouter()
+  const fmt = (d: Date) => d.toISOString().split('T')[0]
+  const defaultEnd = new Date()
+  const defaultStart = new Date()
+  defaultStart.setDate(defaultStart.getDate() - 7)
+
+  const [start, setStart] = useState(currentWindow.start || fmt(defaultStart))
+  const [end, setEnd]     = useState(currentWindow.end   || fmt(defaultEnd))
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSubmit = async () => {
+    if (!repo) { setError('Repository unavailable for this job.'); return }
+    setLoading(true); setError(null)
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoId: repo.id, windowStart: start, windowEnd: end }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(typeof data.error === 'string' ? data.error : 'Failed to start generation')
+      router.push(`/jobs/${data.jobId}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const inputClass =
+    'rounded-md bg-transparent border border-white/8 px-3 py-1.5 text-sm font-mono text-on-surface focus:outline-none focus:border-primary/50 transition-colors'
+
+  return (
+    <div className="rounded-xl border border-white/8 bg-surface-container/40 p-md flex flex-wrap items-end justify-between gap-md">
+      <div>
+        <p className="font-mono text-label-caps uppercase tracking-widest text-on-surface-variant">
+          Regenerate for a different window
+        </p>
+        <p className="font-mono text-code-sm text-outline-variant mt-1">
+          Same repo ({repo?.fullName ?? '—'}) — pick new dates and we&apos;ll rerun the pipeline.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant">From</span>
+          <input type="date" value={start} onChange={e => setStart(e.target.value)} className={inputClass} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant">To</span>
+          <input type="date" value={end} onChange={e => setEnd(e.target.value)} className={inputClass} />
+        </label>
+        <button
+          onClick={handleSubmit}
+          disabled={loading || !repo}
+          className="btn-primary-solid h-9 px-4 rounded-md font-mono text-label-caps uppercase disabled:opacity-50"
+        >
+          {loading ? 'Starting…' : 'Regenerate'}
+        </button>
+      </div>
+      {error && <p className="basis-full font-mono text-code-sm text-error">{error}</p>}
+    </div>
+  )
+}
+
+function DraftEditor({
+  job, repo, drafts, onRefresh,
+}: {
+  job: Job
+  repo: Repo | null
+  drafts: Draft[]
+  onRefresh: () => void
+}) {
   const groupVariants = (platform: 'linkedin' | 'twitter') =>
     drafts
       .filter(d => d.platform === platform)
@@ -250,52 +323,40 @@ function DraftEditor({ job, drafts, onRefresh }: { job: Job; drafts: Draft[]; on
   const linkedinVariants = groupVariants('linkedin')
   const twitterVariants = groupVariants('twitter')
 
+  const fmt = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
   return (
     <div className="space-y-lg">
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-md border-b border-white/8 pb-md">
-        <div className="flex items-center gap-md">
-          <h1 className="font-display text-headline-md font-bold text-on-surface">Draft Editor</h1>
-          <span className="text-outline-variant">·</span>
-          <span className="font-mono text-code-sm text-on-surface-variant uppercase tracking-widest">
-            Window {new Date(job.windowStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} –{' '}
-            {new Date(job.windowEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </span>
+        <div className="flex flex-col gap-1">
+          <h1 className="font-display text-headline-md font-bold text-on-surface">Your drafts</h1>
+          <p className="font-mono text-code-sm text-on-surface-variant">
+            {repo?.fullName ?? 'Repository'} · commits from {fmt(job.windowStart)} – {fmt(job.windowEnd)}
+          </p>
         </div>
-        <div className="flex items-center gap-md">
-          <span className="font-mono text-code-sm text-on-surface-variant">
-            {(drafts.reduce((a, d) => a + (d.editedContent ?? d.originalContent).length, 0))} chars
-          </span>
-          <Link href="/dashboard" className="font-mono text-code-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface">
-            History
-          </Link>
-          <button className="btn-ghost h-9 px-3 rounded-lg font-mono text-label-caps uppercase">
-            Regenerate
-          </button>
-          <button className="btn-primary-solid h-9 px-4 rounded-lg font-mono text-label-caps uppercase">
-            Publish
-          </button>
-        </div>
+        <Link
+          href="/drafts"
+          className="font-mono text-code-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors"
+        >
+          All drafts →
+        </Link>
       </div>
 
       {/* Status banners */}
       {job.status === 'failed' && (
         <div className="rounded-xl border border-error/40 bg-error/5 px-4 py-3 space-y-1">
-          <p className="font-mono text-code-sm text-error">
-            Generation failed.
-          </p>
+          <p className="font-mono text-code-sm text-error">Generation failed.</p>
           {job.errorMessage && (
             <p className="font-mono text-code-sm text-on-surface-variant break-words">
               {job.errorMessage}
             </p>
           )}
-          <p className="font-mono text-code-sm text-on-surface-variant">
-            <Link href="/dashboard" className="text-primary hover:underline">Try again from the dashboard →</Link>
-          </p>
         </div>
       )}
       {job.status === 'partial_completed' && (
-        <div className="glass-card rounded-xl px-4 py-3 font-mono text-code-sm text-tertiary" style={{ borderColor: 'rgba(255,184,105,0.4)' }}>
-          One platform failed to generate. Saved drafts shown below.
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 font-mono text-code-sm text-on-surface-variant">
+          One platform didn&apos;t come back this time. The other is below — you can also regenerate the missing one in its panel.
         </div>
       )}
 
@@ -318,6 +379,12 @@ function DraftEditor({ job, drafts, onRefresh }: { job: Job; drafts: Draft[]; on
           />
         )}
       </div>
+
+      {/* Inline regenerate */}
+      <RegeneratePanel
+        repo={repo}
+        currentWindow={{ start: job.windowStart.slice(0, 10), end: job.windowEnd.slice(0, 10) }}
+      />
     </div>
   )
 }
@@ -419,7 +486,7 @@ export default function JobPage() {
       <main className="max-w-7xl mx-auto px-margin py-xl">
         {isActive
           ? <MagicMoment job={job} repo={repo} />
-          : <DraftEditor job={job} drafts={drafts} onRefresh={refresh} />
+          : <DraftEditor job={job} repo={repo} drafts={drafts} onRefresh={refresh} />
         }
       </main>
     </div>

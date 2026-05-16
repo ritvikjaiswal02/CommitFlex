@@ -32,13 +32,31 @@ export function normalizeNarrative(raw: unknown): Narrative {
   }
 }
 
+/**
+ * Soft-truncate to a hard cap, preferring the last word boundary so we don't
+ * chop mid-token. Returns the trimmed text with an ellipsis appended only when
+ * truncation actually happened.
+ */
+function truncateAtWord(text: string, max: number): string {
+  if (text.length <= max) return text
+  // Leave room for the ellipsis character.
+  const room = max - 1
+  const slice = text.slice(0, room)
+  const lastSpace = slice.lastIndexOf(' ')
+  const safe = lastSpace > room * 0.7 ? slice.slice(0, lastSpace) : slice
+  return safe.trimEnd() + '…'
+}
+
 export function normalizeGeneratedPost(raw: unknown, platform: 'linkedin' | 'twitter'): GeneratedPost {
   if (typeof raw !== 'object' || raw === null) throw new Error('GeneratedPost must be an object')
   const r = raw as Record<string, unknown>
   if (typeof r.content !== 'string') throw new Error('GeneratedPost.content must be a string')
-  const content = normalizeText(r.content)
+  let content = normalizeText(r.content)
+  // Twitter has a hard 280-char limit. At higher temperatures Gemini sometimes
+  // overshoots — gracefully truncate at a word boundary rather than failing
+  // the whole generation.
   if (platform === 'twitter' && content.length > 280) {
-    throw new Error(`Twitter post exceeds 280 chars (got ${content.length})`)
+    content = truncateAtWord(content, 280)
   }
   return {
     platform,

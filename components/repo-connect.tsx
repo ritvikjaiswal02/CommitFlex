@@ -90,7 +90,7 @@ export function RepoConnect() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-mono text-sm text-on-surface truncate">{repo.fullName}</span>
-              {repo.isPrivate && <span className="chip chip-tertiary">Private</span>}
+              {repo.isPrivate && <span className="chip chip-neutral">Private</span>}
               {repo.language && <span className="chip chip-secondary">{repo.language}</span>}
             </div>
             {repo.description && (
