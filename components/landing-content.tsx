@@ -287,8 +287,8 @@ export function LandingContent() {
             {[
               { kpi: '< 60s', label: 'Time to first draft' },
               { kpi: '2', label: 'Platforms covered' },
-              { kpi: '100%', label: 'Open-source-friendly' },
-              { kpi: 'Read-only', label: 'GitHub access' },
+              { kpi: '3×', label: 'Variants per click' },
+              { kpi: '100%', label: 'In your own voice' },
             ].map(s => (
               <div key={s.label} className="py-sm">
                 <p className="font-display text-headline-md font-bold tracking-tighter text-on-surface">{s.kpi}</p>
@@ -310,9 +310,6 @@ export function LandingContent() {
           className="max-w-6xl mx-auto px-margin"
         >
           <motion.div variants={fadeUp} className="text-center mb-xl">
-            <p className="font-mono text-label-caps uppercase tracking-widest text-primary mb-sm">
-              Why CommitFlex
-            </p>
             <h2 className="font-display text-headline-md md:text-display-lg font-bold tracking-tighter text-on-surface">
               Built for shipping, not posting.
             </h2>
@@ -640,22 +637,14 @@ export function LandingContent() {
 
       {/* ─── Footer ───────────────────────────────────────────────────── */}
       <footer className="border-t border-white/8 mt-auto py-md">
-        <div className="max-w-7xl mx-auto px-margin flex flex-col md:flex-row items-center justify-between gap-md">
-          <div className="flex items-center gap-md">
-            <span className="font-display text-base font-bold tracking-tighter text-on-surface">
-              Commit<span className="text-primary">Flex</span>
-            </span>
-            <span className="font-mono text-code-sm text-on-surface-variant">
-              © 2026 CommitFlex. Built for devs who ship.
-            </span>
-          </div>
-          <div className="flex gap-lg">
-            {['Privacy', 'Terms', 'Security', 'Status'].map(s => (
-              <a key={s} href="#" className="font-mono text-code-sm text-on-surface-variant hover:text-primary transition-colors">
-                {s}
-              </a>
-            ))}
-          </div>
+        <div className="max-w-7xl mx-auto px-margin flex items-center justify-center gap-2">
+          <span className="font-display text-base font-bold tracking-tighter text-on-surface">
+            Commit<span className="text-primary">Flex</span>
+          </span>
+          <span className="text-outline-variant">·</span>
+          <span className="font-mono text-code-sm text-on-surface-variant">
+            © 2026 — built for devs who ship
+          </span>
         </div>
       </footer>
     </div>

@@ -12,7 +12,6 @@ import { AppShell } from '@/components/app-sidebar'
 import {
   AccountCard,
   NotificationsCard,
-  ApiKeysCard,
   DangerZoneCard,
 } from '@/components/settings-account'
 
@@ -100,12 +99,6 @@ export default async function SettingsPage() {
               connect a new one
             </Link>.
           </p>
-        </section>
-
-        {/* API */}
-        <section className="space-y-md">
-          <SectionHeader label="API access" hint="Programmatic access for power users." />
-          <ApiKeysCard />
         </section>
 
         {/* Danger zone */}

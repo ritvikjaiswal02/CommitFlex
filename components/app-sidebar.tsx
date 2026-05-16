@@ -124,17 +124,10 @@ export function AppSidebar({ userName, userEmail, userImage }: AppSidebarProps) 
 export function AppFooter() {
   return (
     <footer className="fixed bottom-0 left-0 lg:left-64 right-0 bg-background/80 backdrop-blur-md border-t border-white/8 z-30">
-      <div className="flex flex-col md:flex-row justify-between items-center px-margin py-md gap-md w-full max-w-7xl mx-auto">
+      <div className="flex items-center justify-center px-margin py-md w-full max-w-7xl mx-auto">
         <p className="font-mono text-code-sm text-on-surface-variant">
-          © 2026 CommitFlex. Built for the elite.
+          Commit<span className="text-primary">Flex</span> · © 2026 — built for devs who ship
         </p>
-        <div className="flex gap-lg">
-          {['Privacy', 'Terms', 'Security', 'Status'].map(s => (
-            <a key={s} href="#" className="font-mono text-code-sm text-on-surface-variant hover:text-primary transition-colors">
-              {s}
-            </a>
-          ))}
-        </div>
       </div>
     </footer>
   )

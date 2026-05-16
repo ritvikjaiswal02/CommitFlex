@@ -58,17 +58,10 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-white/8 px-margin py-md flex items-center justify-between">
+      <footer className="relative z-10 border-t border-white/8 px-margin py-md flex items-center justify-center">
         <p className="font-mono text-code-sm text-on-surface-variant">
-          Commit<span className="text-primary">Flex</span> · © 2026 CommitFlex. Built for the elite.
+          Commit<span className="text-primary">Flex</span> · © 2026 — built for devs who ship
         </p>
-        <div className="flex gap-lg">
-          {['Privacy', 'Terms', 'Security', 'Status'].map(s => (
-            <a key={s} href="#" className="font-mono text-code-sm text-on-surface-variant hover:text-primary transition-colors">
-              {s}
-            </a>
-          ))}
-        </div>
       </footer>
     </div>
   )
