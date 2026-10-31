@@ -58,3 +58,21 @@ export async function fetchCommitsForTag(
 
   return { commits, previousTag }
 }
+
+/**
+ * Release title and notes for a tag, or null when the tag has no GitHub
+ * release (a bare tag) or the API call fails.
+ */
+export async function fetchReleaseNotes(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  tag: string,
+): Promise<{ name: string | null; body: string | null; htmlUrl: string } | null> {
+  try {
+    const { data } = await octokit.repos.getReleaseByTag({ owner, repo, tag })
+    return { name: data.name ?? null, body: data.body ?? null, htmlUrl: data.html_url }
+  } catch {
+    return null
+  }
+}

@@ -5,7 +5,7 @@ import { normalizeGeneratedPost } from './normalize'
 import type { Narrative, GeneratedPost } from '@/types/ai'
 import type { VoiceSettings } from '@/types/jobs'
 
-const PROMPT_VERSION = '1.1'
+const PROMPT_VERSION = '2.0'
 const MODEL = 'gemini-2.5-flash'
 const DEFAULT_TEMPERATURE = 0.7
 
@@ -19,6 +19,8 @@ export interface GenerateOptions {
   /** 0..1 (Gemini); when omitted, derived from creativity or defaults to 0.7. */
   temperature?: number
   toneOverrides?: ToneOverrides
+  /** One or two lines about the author (role, product, audience). */
+  authorContext?: string | null
 }
 
 /**
@@ -85,6 +87,7 @@ function buildPrompt(
     .replace('{{tone}}', voice.tone)
     .replace('{{technicalLevel}}', String(voice.technicalLevel))
     .replace('{{audience}}', voice.audience)
+    .replace('{{authorContext}}', options.authorContext?.trim() || 'A software developer sharing their work.')
     .replace('{{narrative}}', narrativeText)
     .replace('{{extraContext}}', buildExtraContextBlock(voice.extraContext))
     .replace('{{toneOverrides}}', buildToneOverridesBlock(options.toneOverrides))
@@ -147,22 +150,29 @@ export async function generatePost(
   }
 }
 
-export async function generatePosts(narrative: Narrative, voice: VoiceSettings): Promise<{
+export async function generatePosts(
+  narrative: Narrative,
+  voice: VoiceSettings,
+  options: { authorContext?: string | null; platforms?: Array<'linkedin' | 'twitter'> } = {},
+): Promise<{
   linkedin: { post: GeneratedPost; _meta: { promptTokens: number; completionTokens: number; promptVersion: string; rawOutput: string; temperature: number } } | null
   twitter: { post: GeneratedPost; _meta: { promptTokens: number; completionTokens: number; promptVersion: string; rawOutput: string; temperature: number } } | null
   errors: { linkedin?: string; twitter?: string }
 }> {
+  const wants = (p: 'linkedin' | 'twitter') => !options.platforms || options.platforms.includes(p)
+  const skipped = Promise.reject(new Error('skipped'))
+  skipped.catch(() => {})
   const [linkedinResult, twitterResult] = await Promise.allSettled([
-    generatePost('linkedin', narrative, voice),
-    generatePost('twitter', narrative, voice),
+    wants('linkedin') ? generatePost('linkedin', narrative, voice, { authorContext: options.authorContext }) : skipped,
+    wants('twitter') ? generatePost('twitter', narrative, voice, { authorContext: options.authorContext }) : skipped,
   ])
 
   return {
     linkedin: linkedinResult.status === 'fulfilled' ? linkedinResult.value : null,
     twitter: twitterResult.status === 'fulfilled' ? twitterResult.value : null,
     errors: {
-      ...(linkedinResult.status === 'rejected' ? { linkedin: linkedinResult.reason?.message } : {}),
-      ...(twitterResult.status === 'rejected' ? { twitter: twitterResult.reason?.message } : {}),
+      ...(linkedinResult.status === 'rejected' && wants('linkedin') ? { linkedin: linkedinResult.reason?.message } : {}),
+      ...(twitterResult.status === 'rejected' && wants('twitter') ? { twitter: twitterResult.reason?.message } : {}),
     },
   }
 }

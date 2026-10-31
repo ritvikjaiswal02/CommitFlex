@@ -1,4 +1,4 @@
-import { describe, it, expectTypeOf } from 'vitest'
+import { describe, it, expect, expectTypeOf } from 'vitest'
 import type { RawCommit, FilteredCommits, GithubRepo } from '@/types/github'
 import type { CommitSummary, Narrative, GeneratedPost } from '@/types/ai'
 import type { PostDraft, PostPlatform, PostStatus } from '@/types/posts'
@@ -19,5 +19,14 @@ describe('types', () => {
   it('GenerationJobStatus includes all pipeline statuses', () => {
     const status: GenerationJobStatus = 'extracting_narrative'
     expectTypeOf(status).toMatchTypeOf<GenerationJobStatus>()
+  })
+})
+
+describe('autopilot types', () => {
+  it('lists every queue status and job trigger', async () => {
+    const { QUEUE_STATUSES, JOB_TRIGGERS, ACTIVE_QUEUE_STATUSES } = await import('@/types/autopilot')
+    expect(QUEUE_STATUSES).toHaveLength(8)
+    expect(JOB_TRIGGERS).toContain('release_published')
+    expect(ACTIVE_QUEUE_STATUSES).toEqual(['pending_review', 'approved', 'scheduled', 'ready'])
   })
 })

@@ -17,6 +17,7 @@ jobs:
       NEXTAUTH_SECRET: ci_secret_not_real
       GITHUB_CLIENT_ID: placeholder
       GITHUB_CLIENT_SECRET: placeholder
+      GEMINI_API_KEY: placeholder
       ANTHROPIC_API_KEY: placeholder
       OAUTH_TOKEN_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
@@ -37,6 +38,9 @@ jobs:
 
       - name: Type check
         run: pnpm tsc --noEmit
+
+      - name: Design tokens
+        run: pnpm lint:tokens
 
       - name: Unit tests
         run: pnpm vitest run

@@ -21,7 +21,7 @@ function makeRequest(body: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(checkRateLimit).mockReturnValue({ allowed: true, remaining: 4, resetAt: Date.now() + 60_000 } as any)
+  vi.mocked(checkRateLimit).mockResolvedValue({ allowed: true, remaining: 4, resetAt: Date.now() + 60_000 } as any)
   vi.mocked(analyzeVoiceSamples).mockResolvedValue({
     fingerprint: 'Voice fingerprint: punchy and direct.',
     _meta: { promptTokens: 100, completionTokens: 50, promptVersion: '1.0', rawOutput: '' },
@@ -37,14 +37,27 @@ describe('POST /api/voice/analyze', () => {
 
   it('returns 429 when rate-limited', async () => {
     vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
-    vi.mocked(checkRateLimit).mockReturnValue({ allowed: false, remaining: 0, resetAt: Date.now() + 60_000 } as any)
+    vi.mocked(checkRateLimit).mockResolvedValue({ allowed: false, remaining: 0, resetAt: Date.now() + 60_000 } as any)
     const res = await POST(makeRequest(validBody))
     expect(res.status).toBe(429)
   })
 
-  it('returns 400 when fewer than 3 samples', async () => {
+  it('returns 400 when no samples are given', async () => {
     vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
-    const res = await POST(makeRequest({ samples: [goodSample, goodSample] }))
+    const res = await POST(makeRequest({ samples: [] }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('invalid_request')
+  })
+
+  it('accepts a single sample of 40+ characters', async () => {
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
+    const res = await POST(makeRequest({ samples: ['B'.repeat(40)] }))
+    expect(res.status).toBe(200)
+  })
+
+  it('returns 400 for more than 10 samples', async () => {
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
+    const res = await POST(makeRequest({ samples: Array.from({ length: 11 }, () => goodSample) }))
     expect(res.status).toBe(400)
   })
 
@@ -69,12 +82,15 @@ describe('POST /api/voice/analyze', () => {
   })
 
   it('returns 502 when the analyzer throws', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
     vi.mocked(analyzeVoiceSamples).mockRejectedValue(new Error('LLM blew up'))
     const res = await POST(makeRequest(validBody))
     expect(res.status).toBe(502)
     const data = await res.json()
-    expect(data.error).toContain('LLM blew up')
+    expect(data.code).toBe('upstream_error')
+    // Internal error text stays in the logs, not the response.
+    expect(data.error).not.toContain('LLM blew up')
   })
 
   it('rate-limit key is scoped per user', async () => {

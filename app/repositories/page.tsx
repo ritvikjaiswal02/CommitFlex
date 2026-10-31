@@ -1,36 +1,57 @@
-import { auth } from '@/auth'
-import { redirect } from 'next/navigation'
-import Link from 'next/link'
+import type { Metadata } from 'next'
+import { AppShell } from '@/components/app-shell'
+import { ErrorState } from '@/components/ui/error-state'
+import { PageHeader } from '@/components/ui/page-header'
 import { getUserRepos } from '@/lib/db/queries/repos'
-import { AppShell } from '@/components/app-sidebar'
-import { RepoManager } from '@/components/repo-manager'
+import { limitFor } from '@/lib/billing/catalog'
+import { RepositoriesView } from '@/components/app/repositories-view'
+import { loadPublishingContext, requireAppUser, settle } from '@/components/app/server-context'
 
-export default async function RepositoriesPage() {
-  const session = await auth()
-  if (!session?.user?.id) redirect('/login')
+export const metadata: Metadata = { title: 'Repositories' }
+export const dynamic = 'force-dynamic'
 
-  const repos = await getUserRepos(session.user.id)
+export default async function RepositoriesPage({ searchParams }: { searchParams: { connect?: string } }) {
+  const { user, timezone } = await requireAppUser('/repositories')
+  const [repos, publishing] = await Promise.all([
+    settle(getUserRepos(user.id), 'getUserRepos'),
+    loadPublishingContext(user.id),
+  ])
+  const max = limitFor(publishing.plan?.id ?? 'free', 'repos')
 
   return (
-    <AppShell user={{ name: session.user.name, email: session.user.email, image: session.user.image }}>
-      <header className="mb-xl flex flex-col md:flex-row md:items-end md:justify-between gap-md">
-        <div>
-          <h1 className="font-display text-headline-md font-bold text-on-surface">Repositories</h1>
-          <p className="text-on-surface-variant mt-1">
-            Connected repos whose commits power your generations.
-          </p>
+    <AppShell user={user}>
+      <PageHeader
+        title="Repositories"
+        description="The projects CommitFlex watches. Each one tells us when you merge a pull request or publish a release."
+      />
+      {repos.ok ? (
+        <RepositoriesView
+          // Only the fields the client needs: never send webhook secrets to the browser.
+          repos={repos.value.map((r) => ({
+            id: r.id,
+            githubRepoId: String(r.githubRepoId),
+            name: r.name,
+            fullName: r.fullName,
+            isPrivate: r.isPrivate,
+            autoGenerate: r.autoGenerate,
+            webhookId: r.webhookId ?? null,
+            autopilotEnabled: r.autopilotEnabled,
+            webhookEvents: r.webhookEvents,
+            defaultBranch: r.defaultBranch,
+          }))}
+          limit={{ used: repos.value.length, max }}
+          timezone={timezone}
+          openConnect={searchParams.connect === '1'}
+          planId={publishing.plan?.id ?? 'free'}
+        />
+      ) : (
+        <div className="rounded-lg border border-line bg-surface px-5">
+          <ErrorState
+            title="Your repositories didn't load"
+            description="We couldn't reach the database. Reload the page in a moment."
+          />
         </div>
-        <Link
-          href="/onboarding?add=1"
-          className="btn-primary-solid h-10 px-4 rounded-xl text-sm inline-flex items-center gap-2"
-        >
-          + Connect repos
-        </Link>
-      </header>
-
-      <div className="glass-card rounded-xl overflow-hidden p-lg">
-        <RepoManager repos={repos} />
-      </div>
+      )}
     </AppShell>
   )
 }

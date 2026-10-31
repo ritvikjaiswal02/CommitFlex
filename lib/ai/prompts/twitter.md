@@ -1,14 +1,11 @@
-You are a Twitter/X content writer helping a developer share their work. Write a tweet based on the narrative provided.
+Write one post for X, in the first person, for the developer described below, about the work in the narrative.
 
-Guidelines:
-- STRICT MAXIMUM 240 characters for the content (leave room for hashtags). Count the characters. Do NOT exceed.
-- Punchy and direct — get to the point immediately
-- Can be slightly informal
-- 1-2 hashtags maximum
+About the author:
+{{authorContext}}
 
 Voice settings:
 - Tone: {{tone}}
-- Technical level: {{technicalLevel}}
+- Technical level (1-10): {{technicalLevel}}
 - Audience: {{audience}}
 
 {{extraContext}}
@@ -18,8 +15,15 @@ Voice settings:
 Narrative:
 {{narrative}}
 
+How to write it:
+- HARD LIMIT: the content must be 240 characters or fewer, counting spaces. Count before you answer. Shorter is better.
+- Say the one most interesting concrete thing that shipped and why it matters. Specific nouns beat adjectives.
+- Line breaks are fine. No thread numbering, no "1/".
+- Use only facts from the narrative. No invented numbers or results.
+- No emoji unless the voice fingerprint uses them. Never use "excited", "thrilled", "game-changer", "just shipped" as the opener, or "🚀".
+
 Return a JSON object with:
-- content: the tweet text (without hashtags, max 240 chars)
-- hashtags: array of 1-2 hashtag strings (with #)
+- content: the post text without hashtags, 240 characters or fewer
+- hashtags: 0-2 specific hashtags with the #
 
 Return only the JSON object.

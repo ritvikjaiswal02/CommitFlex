@@ -1,15 +1,16 @@
 import { createHmac, timingSafeEqual, randomBytes } from 'crypto'
 import type { Octokit } from '@octokit/rest'
+import { webhookBaseUrl as envWebhookBaseUrl } from '@/lib/env'
+
+/** Events autopilot needs: pushes, merged pull requests and releases. */
+export const WEBHOOK_EVENTS = ['push', 'pull_request', 'release'] as const
 
 /**
- * Default origin used to compute the webhook payload URL when the env var
- * isn't set. Vercel exposes VERCEL_URL; locally it falls back to localhost.
+ * Public origin GitHub calls back to: WEBHOOK_BASE_URL, else the app URL
+ * (APP_URL, NEXTAUTH_URL, VERCEL_URL, localhost).
  */
 export function webhookBaseUrl(): string {
-  if (process.env.WEBHOOK_BASE_URL) return process.env.WEBHOOK_BASE_URL
-  if (process.env.NEXTAUTH_URL) return process.env.NEXTAUTH_URL
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
-  return 'http://localhost:3000'
+  return envWebhookBaseUrl()
 }
 
 export function webhookPayloadUrl(): string {
@@ -43,10 +44,11 @@ interface InstallParams {
   repo: string
   secret: string
   payloadUrl?: string
+  events?: readonly string[]
 }
 
-/** Create the push-event webhook on a GitHub repo. Returns the new webhook ID. */
-export async function installRepoWebhook({ octokit, owner, repo, secret, payloadUrl }: InstallParams): Promise<number> {
+/** Create the repo webhook (push, pull_request, release). Returns the new webhook ID. */
+export async function installRepoWebhook({ octokit, owner, repo, secret, payloadUrl, events }: InstallParams): Promise<number> {
   const { data } = await octokit.repos.createWebhook({
     owner,
     repo,
@@ -56,10 +58,37 @@ export async function installRepoWebhook({ octokit, owner, repo, secret, payload
       secret,
       insecure_ssl: '0',
     },
-    events: ['push'],
+    events: [...(events ?? WEBHOOK_EVENTS)],
     active: true,
   })
   return data.id
+}
+
+/**
+ * Switch an existing hook to all autopilot events and a fresh secret.
+ * Throws with `status` 404 when the hook no longer exists on GitHub.
+ */
+export async function updateRepoWebhook(params: {
+  octokit: Octokit
+  owner: string
+  repo: string
+  webhookId: number
+  secret: string
+  payloadUrl?: string
+}): Promise<void> {
+  await params.octokit.repos.updateWebhook({
+    owner: params.owner,
+    repo: params.repo,
+    hook_id: params.webhookId,
+    config: {
+      url: params.payloadUrl ?? webhookPayloadUrl(),
+      content_type: 'json',
+      secret: params.secret,
+      insecure_ssl: '0',
+    },
+    events: [...WEBHOOK_EVENTS],
+    active: true,
+  })
 }
 
 interface RemoveParams {

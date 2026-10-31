@@ -1,7 +1,20 @@
+import { sql } from 'drizzle-orm'
 import {
   pgTable, text, varchar, boolean, integer, bigint,
-  timestamp, uuid, jsonb, numeric, primaryKey, index,
+  timestamp, uuid, jsonb, numeric, primaryKey, index, uniqueIndex,
 } from 'drizzle-orm/pg-core'
+
+/**
+ * What the onboarding prefetch stores on a job: the fetch and summarise
+ * stages run while the user is still answering questions, so `/complete`
+ * only has to write the narrative and the posts.
+ */
+export interface JobPrefetch {
+  summaries: { sha: string; summary: string; tags: string[]; significance: number }[]
+  sourceContext: string | null
+  commitCount: number
+  finishedAt: string
+}
 
 export const users = pgTable('users', {
   id: text('id').primaryKey(),
@@ -55,6 +68,12 @@ export const repos = pgTable('repos', {
   webhookSecret: text('webhook_secret'),
   webhookId: bigint('webhook_id', { mode: 'number' }),
   autoGenerate: boolean('auto_generate').notNull().default(true),
+  // Autopilot: ship moments and digests only fire for repos with this on.
+  // Downgrades flip it off for repos beyond the plan's limit (never deleted).
+  autopilotEnabled: boolean('autopilot_enabled').notNull().default(true),
+  // Events the installed GitHub webhook subscribes to. Repos connected before
+  // autopilot only have 'push'; the repositories page offers an upgrade.
+  webhookEvents: text('webhook_events').array().notNull().default(['push']),
   connectedAt: timestamp('connected_at', { mode: 'date' }).notNull().defaultNow(),
   createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { mode: 'date' }),
@@ -90,6 +109,18 @@ export const generationJobs = pgTable('generation_jobs', {
   sourceType: varchar('source_type', { length: 20 }).notNull().default('window'),
   // Free-form ref: PR URL when sourceType='pr', release tag name when 'release'.
   sourceRef: text('source_ref'),
+  // What started this job:
+  // 'manual'|'push'|'pr_merged'|'release_published'|'weekly_digest'|'cadence'|'extension'|'onboarding'
+  trigger: varchar('trigger', { length: 30 }).notNull().default('manual'),
+  voiceProfileId: uuid('voice_profile_id').references(() => voiceSettings.id, { onDelete: 'set null' }),
+  // When true, drafts are enqueued into the autopilot queue on completion.
+  autoQueue: boolean('auto_queue').notNull().default(false),
+  // Onboarding prefetch result (status 'prefetched'); null for every other job.
+  prefetch: jsonb('prefetch').$type<JobPrefetch>(),
+  // True while an onboarding prefetch waits for the user's answers. Whoever
+  // flips the job from 'prefetched' to writing (the prefetch run or
+  // /api/onboarding/complete) does so with a conditional update, once.
+  awaitingInput: boolean('awaiting_input').notNull().default(false),
   windowStart: timestamp('window_start', { mode: 'date' }).notNull(),
   windowEnd: timestamp('window_end', { mode: 'date' }).notNull(),
   retryCount: integer('retry_count').notNull().default(0),
@@ -98,7 +129,14 @@ export const generationJobs = pgTable('generation_jobs', {
   completedAt: timestamp('completed_at', { mode: 'date' }),
   createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
-}, (t) => ({ userCreatedIdx: index('jobs_user_created_idx').on(t.userId, t.createdAt) }))
+}, (t) => ({
+  userCreatedIdx: index('jobs_user_created_idx').on(t.userId, t.createdAt),
+  // At most one live job per repo. Two webhooks (or the cron and a manual
+  // run) racing to start a job: the second insert fails with 23505.
+  activeRepoUidx: uniqueIndex('generation_jobs_active_repo_uidx')
+    .on(t.repoId)
+    .where(sql`status NOT IN ('completed', 'partial_completed', 'failed', 'cancelled')`),
+}))
 
 export const commitSnapshots = pgTable('commit_snapshots', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -183,6 +221,9 @@ export const userNotificationPreferences = pgTable('user_notification_preference
   emailOnComplete: boolean('email_on_complete').notNull().default(true),
   weeklyDigest: boolean('weekly_digest').notNull().default(false),
   productUpdates: boolean('product_updates').notNull().default(false),
+  approvalRequests: boolean('approval_requests').notNull().default(true),
+  readyToPost: boolean('ready_to_post').notNull().default(true),
+  publishReceipts: boolean('publish_receipts').notNull().default(true),
   updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
 })
 
@@ -212,3 +253,247 @@ export const pipelineEvents = pgTable('pipeline_events', {
   jobIdx: index('events_job_idx').on(t.jobId),
   corrIdx: index('events_corr_idx').on(t.correlationId),
 }))
+
+// ---------------------------------------------------------------------------
+// Autopilot: profile, settings, queue, ship moments
+// ---------------------------------------------------------------------------
+
+export const userProfiles = pgTable('user_profiles', {
+  userId: text('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  role: varchar('role', { length: 30 }), // founder|engineer|maintainer|freelancer|student|devrel
+  pitch: varchar('pitch', { length: 160 }),
+  audiences: text('audiences').array().notNull().default([]), // developers|recruiters|customers|founders|users
+  platforms: text('platforms').array().notNull().default(['linkedin', 'twitter']),
+  tonePreset: varchar('tone_preset', { length: 30 }), // plain_technical|story_led|confident_founder|teacher|casual
+  timezone: varchar('timezone', { length: 64 }).notNull().default('UTC'),
+  country: varchar('country', { length: 2 }),
+  // repos|role|audience|platforms|voice|cadence|done
+  onboardingStep: varchar('onboarding_step', { length: 30 }).notNull().default('repos'),
+  onboardedAt: timestamp('onboarded_at', { mode: 'date' }),
+  // Where approval emails go when it differs from (or replaces a missing) GitHub email.
+  notifyEmail: varchar('notify_email', { length: 255 }),
+  trialEndsAt: timestamp('trial_ends_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+})
+
+export const autopilotSettings = pgTable('autopilot_settings', {
+  userId: text('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').notNull().default(false),
+  // ship_moments|weekly|twice_weekly|three_weekly|weekdays
+  cadence: varchar('cadence', { length: 20 }).notNull().default('ship_moments'),
+  postDays: integer('post_days').array().notNull().default([2, 4]), // 0=Sun … 6=Sat
+  postTime: varchar('post_time', { length: 5 }).notNull().default('09:00'), // HH:MM, profile timezone
+  // pr_merged|release_published|weekly_digest|push_window
+  triggers: text('triggers').array().notNull().default(['pr_merged', 'release_published', 'weekly_digest']),
+  platforms: text('platforms').array().notNull().default(['linkedin', 'twitter']),
+  approvalMode: varchar('approval_mode', { length: 10 }).notNull().default('review'), // review|auto
+  reviewerEmails: text('reviewer_emails').array().notNull().default([]),
+  defaultVoiceProfileId: uuid('default_voice_profile_id').references(() => voiceSettings.id, { onDelete: 'set null' }),
+  pausedUntil: timestamp('paused_until', { mode: 'date' }),
+  lastPlannedAt: timestamp('last_planned_at', { mode: 'date' }),
+  lastDigestAt: timestamp('last_digest_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+})
+
+export const queueItems = pgTable('queue_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  draftId: uuid('draft_id').notNull().references(() => postDrafts.id, { onDelete: 'cascade' }),
+  repoId: uuid('repo_id').references(() => repos.id, { onDelete: 'set null' }),
+  platform: varchar('platform', { length: 20 }).notNull(), // linkedin|twitter
+  // pending_review|approved|scheduled|ready|publishing|published|failed|skipped
+  status: varchar('status', { length: 20 }).notNull().default('pending_review'),
+  scheduledFor: timestamp('scheduled_for', { mode: 'date' }),
+  approvedAt: timestamp('approved_at', { mode: 'date' }),
+  approvedBy: varchar('approved_by', { length: 255 }), // email or 'owner' or 'auto'
+  publishedAt: timestamp('published_at', { mode: 'date' }),
+  publishMethod: varchar('publish_method', { length: 20 }), // linkedin_api|x_intent|extension|manual
+  externalPostId: text('external_post_id'),
+  externalUrl: text('external_url'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: timestamp('next_attempt_at', { mode: 'date' }),
+  lastError: text('last_error'),
+  reminderSentAt: timestamp('reminder_sent_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+}, (t) => ({
+  draftUidx: uniqueIndex('queue_items_draft_uidx').on(t.draftId),
+  userSchedIdx: index('queue_items_user_sched_idx').on(t.userId, t.scheduledFor),
+  statusSchedIdx: index('queue_items_status_sched_idx').on(t.status, t.scheduledFor),
+}))
+
+export const approvalTokens = pgTable('approval_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  queueItemId: uuid('queue_item_id').notNull().references(() => queueItems.id, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull(), // sha256 hex
+  email: varchar('email', { length: 255 }).notNull(),
+  // What this link may do. Owners get approve/skip/posted as needed; Team
+  // reviewers only ever get approve.
+  actions: text('actions').array().notNull().default(['approve']),
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+  usedAt: timestamp('used_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+}, (t) => ({ hashUidx: uniqueIndex('approval_tokens_hash_uidx').on(t.tokenHash) }))
+
+export const shipEvents = pgTable('ship_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  repoId: uuid('repo_id').notNull().references(() => repos.id, { onDelete: 'cascade' }),
+  kind: varchar('kind', { length: 30 }).notNull(), // pr_merged|release_published|push
+  externalId: varchar('external_id', { length: 100 }).notNull(), // PR number | release id | YYYY-MM-DD for push
+  title: text('title').notNull(),
+  url: text('url'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(), // e.g. { additions, deletions, skipped: 'limit_reached' }
+  jobId: uuid('job_id').references(() => generationJobs.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+}, (t) => ({
+  dedupeUidx: uniqueIndex('ship_events_dedupe_uidx').on(t.repoId, t.kind, t.externalId),
+  userCreatedIdx: index('ship_events_user_created_idx').on(t.userId, t.createdAt),
+}))
+
+// ---------------------------------------------------------------------------
+// Publishing
+// ---------------------------------------------------------------------------
+
+export const socialConnections = pgTable('social_connections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  provider: varchar('provider', { length: 20 }).notNull(), // linkedin
+  providerAccountId: varchar('provider_account_id', { length: 255 }).notNull(), // LinkedIn OIDC `sub`
+  displayName: varchar('display_name', { length: 255 }),
+  email: varchar('email', { length: 255 }),
+  avatarUrl: text('avatar_url'),
+  accessTokenEnc: text('access_token_enc').notNull(), // encrypt() from lib/auth/encrypt.ts
+  refreshTokenEnc: text('refresh_token_enc'),
+  expiresAt: timestamp('expires_at', { mode: 'date' }),
+  scopes: text('scopes').array().notNull().default([]),
+  status: varchar('status', { length: 20 }).notNull().default('active'), // active|expired|revoked
+  connectedAt: timestamp('connected_at', { mode: 'date' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+}, (t) => ({ userProviderUidx: uniqueIndex('social_connections_user_provider_uidx').on(t.userId, t.provider) }))
+
+export const publishLog = pgTable('publish_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  queueItemId: uuid('queue_item_id').references(() => queueItems.id, { onDelete: 'set null' }),
+  draftId: uuid('draft_id').references(() => postDrafts.id, { onDelete: 'set null' }),
+  platform: varchar('platform', { length: 20 }).notNull(),
+  method: varchar('method', { length: 20 }).notNull(),
+  // null = intent recorded before the API call, outcome not known yet. A
+  // reclaimed 'publishing' item with an open intent is never re-posted.
+  success: boolean('success'),
+  statusCode: integer('status_code'),
+  externalPostId: text('external_post_id'),
+  error: text('error'),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+}, (t) => ({ userCreatedIdx: index('publish_log_user_created_idx').on(t.userId, t.createdAt) }))
+
+// ---------------------------------------------------------------------------
+// Billing and usage
+// ---------------------------------------------------------------------------
+
+export const subscriptions = pgTable('subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  provider: varchar('provider', { length: 20 }).notNull().default('razorpay'),
+  plan: varchar('plan', { length: 20 }).notNull(), // pro|team
+  interval: varchar('interval', { length: 10 }).notNull(), // month|year
+  currency: varchar('currency', { length: 3 }).notNull(), // INR|USD
+  // created|authenticated|active|pending|halted|cancelled|completed|paused|expired
+  status: varchar('status', { length: 20 }).notNull().default('created'),
+  razorpaySubscriptionId: varchar('razorpay_subscription_id', { length: 64 }).notNull(),
+  razorpayPlanId: varchar('razorpay_plan_id', { length: 64 }).notNull(),
+  razorpayCustomerId: varchar('razorpay_customer_id', { length: 64 }),
+  lastPaymentId: varchar('last_payment_id', { length: 64 }),
+  currentPeriodStart: timestamp('current_period_start', { mode: 'date' }),
+  currentPeriodEnd: timestamp('current_period_end', { mode: 'date' }),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+  cancelledAt: timestamp('cancelled_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+}, (t) => ({
+  rzpSubUidx: uniqueIndex('subscriptions_rzp_sub_uidx').on(t.razorpaySubscriptionId),
+  userIdx: index('subscriptions_user_idx').on(t.userId),
+}))
+
+export const billingEvents = pgTable('billing_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  provider: varchar('provider', { length: 20 }).notNull().default('razorpay'),
+  eventId: varchar('event_id', { length: 100 }).notNull(), // x-razorpay-event-id
+  type: varchar('type', { length: 60 }).notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+  processedAt: timestamp('processed_at', { mode: 'date' }),
+  // Claimed by one webhook delivery at a time (concurrent redeliveries back off).
+  processingStartedAt: timestamp('processing_started_at', { mode: 'date' }),
+  error: text('error'),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+}, (t) => ({ eventUidx: uniqueIndex('billing_events_event_uidx').on(t.provider, t.eventId) }))
+
+export const usageCounters = pgTable('usage_counters', {
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  period: varchar('period', { length: 7 }).notNull(), // 'YYYY-MM' (UTC)
+  metric: varchar('metric', { length: 40 }).notNull(), // 'generations'
+  count: integer('count').notNull().default(0),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.userId, t.period, t.metric] }) }))
+
+/**
+ * One row per GitHub account that has ever had a trial. Not tied to users,
+ * so deleting the account and signing in again does not grant a new trial.
+ * Only a SHA-256 of the GitHub account id is kept.
+ */
+export const trialClaims = pgTable('trial_claims', {
+  githubAccountIdHash: varchar('github_account_id_hash', { length: 64 }).primaryKey(),
+  claimedAt: timestamp('claimed_at', { mode: 'date' }).notNull().defaultNow(),
+})
+
+/** Fixed-window rate limit counters shared by every serverless instance. */
+export const rateLimitBuckets = pgTable('rate_limit_buckets', {
+  key: varchar('key', { length: 200 }).primaryKey(),
+  count: integer('count').notNull().default(0),
+  resetAt: timestamp('reset_at', { mode: 'date' }).notNull(),
+}, (t) => ({ resetIdx: index('rate_limit_buckets_reset_idx').on(t.resetAt) }))
+
+// ---------------------------------------------------------------------------
+// Personal access tokens (Chrome extension)
+// ---------------------------------------------------------------------------
+
+export const apiTokens = pgTable('api_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 60 }).notNull(),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+  tokenPrefix: varchar('token_prefix', { length: 16 }).notNull(), // 'cfx_' + first 8 chars, for display
+  scopes: text('scopes').array().notNull().default(['extension']),
+  lastUsedAt: timestamp('last_used_at', { mode: 'date' }),
+  expiresAt: timestamp('expires_at', { mode: 'date' }),
+  revokedAt: timestamp('revoked_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+}, (t) => ({
+  hashUidx: uniqueIndex('api_tokens_hash_uidx').on(t.tokenHash),
+  userIdx: index('api_tokens_user_idx').on(t.userId),
+}))
+
+// ---------------------------------------------------------------------------
+// Inferred row types
+// ---------------------------------------------------------------------------
+
+export type RepoRow = typeof repos.$inferSelect
+export type GenerationJobRow = typeof generationJobs.$inferSelect
+export type PostDraftRow = typeof postDrafts.$inferSelect
+export type UserProfileRow = typeof userProfiles.$inferSelect
+export type AutopilotSettingsRow = typeof autopilotSettings.$inferSelect
+export type QueueItemRow = typeof queueItems.$inferSelect
+export type ApprovalTokenRow = typeof approvalTokens.$inferSelect
+export type ShipEventRow = typeof shipEvents.$inferSelect
+export type SocialConnectionRow = typeof socialConnections.$inferSelect
+export type PublishLogRow = typeof publishLog.$inferSelect
+export type SubscriptionRow = typeof subscriptions.$inferSelect
+export type BillingEventRow = typeof billingEvents.$inferSelect
+export type UsageCounterRow = typeof usageCounters.$inferSelect
+export type ApiTokenRow = typeof apiTokens.$inferSelect
+export type TrialClaimRow = typeof trialClaims.$inferSelect

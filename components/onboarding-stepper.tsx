@@ -1,446 +1,811 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { signIn } from 'next-auth/react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { ArrowLeft } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Callout } from '@/components/ui/callout'
+import { Field } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import { ErrorState } from '@/components/ui/error-state'
+import { toast } from '@/components/ui/toast'
+import { Logo } from '@/components/brand/logo'
+import { platformLabel } from '@/components/brand/platform'
+import { UpgradeProvider, useUpgrade } from '@/components/billing/upgrade-provider'
+import { limitFor } from '@/lib/billing/catalog'
+import type { AutopilotCadence, ApprovalMode } from '@/types/autopilot'
+import type { PostPlatform } from '@/types/posts'
+import {
+  AUDIENCE_OPTIONS,
+  CADENCE_OPTIONS,
+  POST_TIME_VALUES,
+  ROLE_OPTIONS,
+  STEP_LABELS,
+  TONE_OPTIONS,
+  checkVoiceSamples,
+  isAudience,
+  isRole,
+  isTonePreset,
+  type Audience,
+  type OnboardingStep,
+  type PostTime,
+  type Role,
+  type TonePreset,
+} from '@/components/onboarding/questions'
+import {
+  browserTimeZone,
+  patchJson,
+  readError,
+  safeStorage,
+  type CompleteResponse,
+  type GithubRepoOption,
+  type OnboardingState,
+} from '@/components/onboarding/client'
+import { OnboardingRail, OnboardingTopBar } from '@/components/onboarding/onboarding-rail'
+import { StepHeader } from '@/components/onboarding/step-header'
+import { RepoPicker } from '@/components/onboarding/repo-picker'
+import { AudienceStep, CadenceStep, PlatformsStep, RoleStep, VoiceStep } from '@/components/onboarding/steps'
+import { OnboardingSuccess } from '@/components/onboarding/onboarding-success'
+import { connectRepo, useGithubRepos } from '@/components/onboarding/use-github-repos'
 
-type Step = 'connect' | 'repository' | 'voice' | 'identity'
+type QuestionStep = Exclude<OnboardingStep, 'done'>
+const STEPS: QuestionStep[] = ['repos', 'role', 'audience', 'platforms', 'voice', 'cadence']
+const SAMPLES_KEY = 'cf:onboarding:voice-samples'
+const FIRST_REPO_KEY = 'cf:onboarding:first-repo'
 
-const FULL_STEPS: { key: Step; label: string }[] = [
-  { key: 'connect',    label: 'Connect' },
-  { key: 'repository', label: 'Repository' },
-  { key: 'voice',      label: 'Voice' },
-  { key: 'identity',   label: 'Identity' },
-]
+export type LinkedInReturn = 'connected' | 'denied' | 'error' | null
 
-const ADD_STEPS: { key: Step; label: string }[] = [
-  { key: 'repository', label: 'Pick repos' },
-]
-
-interface GithubRepo {
-  githubRepoId: string
-  name: string
-  fullName: string
-  url: string
-  defaultBranch: string
-  isPrivate: boolean
-  description: string | null
-  language: string | null
-  updatedAt: string | null
-  stars?: number
+export interface OnboardingUser {
+  name?: string | null
+  image?: string | null
+  email?: string | null
+  login?: string | null
 }
 
-const PERSONA_OPTIONS = [
-  { key: 'technical', label: 'Technical',   icon: '⚙' },
-  { key: 'founder',   label: 'Founder',     icon: '🚀' },
-  { key: 'educator',  label: 'Educational', icon: '📘' },
-  { key: 'casual',    label: 'Casual',      icon: '💬' },
-  { key: 'builder',   label: 'Builder',     icon: '🔨' },
-]
-
-const PERSONA_TO_TONE: Record<string, string> = {
-  technical: 'analytical',
-  founder:   'enthusiastic',
-  educator:  'storytelling',
-  casual:    'casual',
-  builder:   'professional',
+interface Answers {
+  role: Role | null
+  pitch: string
+  audiences: Audience[]
+  platforms: PostPlatform[]
+  tonePreset: TonePreset
+  samplesText: string
+  cadence: AutopilotCadence
+  postTime: PostTime
+  approvalMode: ApprovalMode
+  timezone: string
+  /** Approval emails go here when the GitHub email is missing or private. */
+  notifyEmail: string
 }
 
-interface OnboardingStepperProps {
-  isAuthenticated: boolean
-  defaultTone?: string
-  defaultExtraContext?: string
-  /** Skip Connect/Voice/Identity — used when the user is back to add more repos. */
-  addMode?: boolean
-  /** GitHub repo IDs the user has already connected — hidden from the picker. */
-  existingGithubRepoIds?: string[]
+/** "Use recommended settings": sensible defaults, all editable later in Settings. */
+const RECOMMENDED: Pick<Answers, 'role' | 'audiences' | 'platforms' | 'tonePreset' | 'cadence' | 'postTime' | 'approvalMode'> = {
+  role: 'engineer',
+  audiences: ['developers'],
+  platforms: ['linkedin', 'twitter'],
+  tonePreset: 'plain_technical',
+  cadence: 'ship_moments',
+  postTime: '09:00',
+  approvalMode: 'review',
 }
 
-export function OnboardingStepper({
-  isAuthenticated,
-  defaultTone,
-  defaultExtraContext,
-  addMode = false,
-  existingGithubRepoIds = [],
-}: OnboardingStepperProps) {
-  const router = useRouter()
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-  const STEPS = addMode ? ADD_STEPS : FULL_STEPS
+/** GitHub accounts with a private email give us nothing (or a noreply address) to send approvals to. */
+function needsNotifyEmail(email: string | null | undefined): boolean {
+  return !email || /@users\.noreply\.github\.com$/i.test(email)
+}
 
-  // Determine starting step
-  const [step, setStep] = useState<Step>(addMode || isAuthenticated ? 'repository' : 'connect')
+function initialAnswers(state: OnboardingState): Answers {
+  const p = state.profile
+  const a = state.autopilot
+  const platforms = (p.platforms ?? []).filter((x): x is PostPlatform => x === 'linkedin' || x === 'twitter')
+  return {
+    role: isRole(p.role) ? p.role : null,
+    pitch: p.pitch ?? '',
+    audiences: (p.audiences ?? []).filter(isAudience).slice(0, 2),
+    platforms: platforms.length > 0 ? platforms : ['linkedin', 'twitter'],
+    tonePreset: isTonePreset(p.tonePreset) ? p.tonePreset : 'plain_technical',
+    samplesText: safeStorage.get(SAMPLES_KEY) ?? '',
+    cadence: a?.cadence ?? 'ship_moments',
+    postTime: a && (POST_TIME_VALUES as readonly string[]).includes(a.postTime) ? (a.postTime as PostTime) : '09:00',
+    approvalMode: a?.approvalMode ?? 'review',
+    timezone: p.timezone || browserTimeZone(),
+    notifyEmail: '',
+  }
+}
 
-  // Repository state
-  const [repos, setRepos] = useState<GithubRepo[]>([])
-  const [reposLoading, setReposLoading] = useState(false)
-  const [reposError, setReposError] = useState<string | null>(null)
-  const [selectedRepoIds, setSelectedRepoIds] = useState<Set<string>>(new Set())
-  const [repoQuery, setRepoQuery] = useState('')
+function initialStepIndex(state: OnboardingState): number {
+  if (state.repos.length === 0) return 0
+  if (state.profile.onboardingStep === 'done') return STEPS.length - 1
+  const i = STEPS.indexOf(state.profile.onboardingStep as QuestionStep)
+  return i === -1 ? 1 : i
+}
 
-  // Voice/Identity
-  const personaFromTone = Object.entries(PERSONA_TO_TONE).find(([, t]) => t === defaultTone)?.[0] ?? 'technical'
-  const [persona, setPersona] = useState<string>(personaFromTone)
-  const [extraContext, setExtraContext] = useState(defaultExtraContext ?? '')
-  const [markdownOn, setMarkdownOn] = useState(true)
-  const [noJargon, setNoJargon] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
+/* ─── Loading frame ──────────────────────────────────────────────────── */
 
-  // Load repos when we reach the repository step
-  useEffect(() => {
-    if (step !== 'repository' || repos.length || reposLoading || !isAuthenticated) return
-    setReposLoading(true)
-    fetch('/api/github/repos')
-      .then(r => r.json())
-      .then(data => {
-        if (data.repos) setRepos(data.repos)
-        else setReposError(data.error ?? 'Failed to load repos')
+function LoadingFrame() {
+  return (
+    <div className="min-h-dvh bg-canvas lg:grid lg:grid-cols-[300px_minmax(0,1fr)]">
+      <aside className="hidden border-r border-line bg-surface p-8 lg:block">
+        <Logo />
+        <div className="mt-16 flex flex-col gap-6">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <Skeleton className="size-4 rounded-full" />
+              <Skeleton className="h-3.5 w-28" />
+            </div>
+          ))}
+        </div>
+      </aside>
+      <main className="px-4 py-10 sm:px-6 lg:px-16 lg:py-16" aria-busy="true" aria-label="Loading your setup">
+        <div className="mx-auto flex max-w-[680px] flex-col gap-4">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-9 w-4/5" />
+          <Skeleton className="h-5 w-3/5" />
+          <div className="mt-6 flex flex-col gap-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 w-full rounded-lg" />
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+/* ─── Entry ──────────────────────────────────────────────────────────── */
+
+export interface OnboardingStepperProps {
+  user: OnboardingUser
+  linkedinReturn?: LinkedInReturn
+}
+
+/** Full-screen onboarding: repos, then five questions, then autopilot starts. */
+export function OnboardingStepper({ user, linkedinReturn = null }: OnboardingStepperProps) {
+  const [state, setState] = React.useState<OnboardingState | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [attempt, setAttempt] = React.useState(0)
+
+  React.useEffect(() => {
+    let cancelled = false
+    setError(null)
+    fetch(`/api/onboarding?tz=${encodeURIComponent(browserTimeZone())}`, { cache: 'no-store' })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await readError(res, 'We couldn’t load your setup. Try again.'))
+        return (await res.json()) as OnboardingState
       })
-      .catch(() => setReposError('Failed to load repositories'))
-      .finally(() => setReposLoading(false))
-  }, [step, isAuthenticated, repos.length, reposLoading])
+      .then((data) => {
+        if (!cancelled) setState(data)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'We couldn’t load your setup. Try again.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [attempt])
 
-  const stepIndex = STEPS.findIndex(s => s.key === step)
-  const existingSet = new Set(existingGithubRepoIds.map(String))
-  const filteredRepos = repos
-    .filter(r => !existingSet.has(String(r.githubRepoId)))
-    .filter(r => r.fullName.toLowerCase().includes(repoQuery.toLowerCase()))
-
-  const toggleRepo = (id: string) => {
-    setSelectedRepoIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
-    })
+  if (error) {
+    return (
+      <div className="flex min-h-dvh flex-col bg-canvas">
+        <div className="px-4 pt-6 sm:px-8">
+          <Logo href="/" />
+        </div>
+        <main className="mx-auto flex w-full max-w-[560px] flex-1 items-center px-4">
+          <ErrorState
+            align="center"
+            className="w-full"
+            title="Setup didn’t load"
+            description={error}
+            onRetry={() => setAttempt((n) => n + 1)}
+          />
+        </main>
+      </div>
+    )
   }
+  if (!state) return <LoadingFrame />
 
-  const next = () => {
-    const i = STEPS.findIndex(s => s.key === step)
-    if (i < STEPS.length - 1) setStep(STEPS[i + 1].key)
-  }
-  const prev = () => {
-    const i = STEPS.findIndex(s => s.key === step)
-    if (i > 0) setStep(STEPS[i - 1].key)
-  }
+  return (
+    <UpgradeProvider currentPlan={state.plan.id}>
+      <OnboardingFlow initial={state} user={user} linkedinReturn={linkedinReturn} />
+    </UpgradeProvider>
+  )
+}
 
-  const canNext =
-    step === 'connect'    ? isAuthenticated :
-    step === 'repository' ? selectedRepoIds.size > 0 :
-    step === 'voice'      ? !!persona :
-                            true
+/* ─── Flow ───────────────────────────────────────────────────────────── */
 
-  const handleFinish = async () => {
-    setSubmitting(true)
-    setSubmitError(null)
+function OnboardingFlow({
+  initial,
+  user,
+  linkedinReturn,
+}: {
+  initial: OnboardingState
+  user: OnboardingUser
+  linkedinReturn: LinkedInReturn
+}) {
+  const router = useRouter()
+  const reduce = useReducedMotion()
+  const { openUpgrade, handlePlanError } = useUpgrade()
+  const titleId = React.useId()
+  const mainRef = React.useRef<HTMLElement>(null)
+
+  const state = initial
+  const [answers, setAnswers] = React.useState<Answers>(() => initialAnswers(initial))
+  const [stepIndex, setStepIndex] = React.useState(() => initialStepIndex(initial))
+  const [furthest, setFurthest] = React.useState(() => initialStepIndex(initial))
+  const [direction, setDirection] = React.useState<1 | -1>(1)
+  const [busy, setBusy] = React.useState(false)
+  const [stepError, setStepError] = React.useState<string | null>(null)
+  const [result, setResult] = React.useState<CompleteResponse | null>(null)
+
+  // Repos
+  const [connectedRepos, setConnectedRepos] = React.useState(initial.repos)
+  const [selected, setSelected] = React.useState<Set<string>>(() => new Set())
+  const [firstRepoId, setFirstRepoId] = React.useState<string | null>(() => safeStorage.get(FIRST_REPO_KEY))
+  const github = useGithubRepos(true)
+
+  const step = STEPS[stepIndex]
+  const plan = state.plan
+  const repoMax = limitFor(plan.id, 'repos')
+  const connectedNames = React.useMemo(() => new Set(connectedRepos.map((r) => r.fullName)), [connectedRepos])
+
+  const update = React.useCallback(<K extends keyof Answers>(key: K, value: Answers[K]) => {
+    setAnswers((prev) => ({ ...prev, [key]: value }))
+    setStepError(null)
+  }, [])
+
+  // LinkedIn round trip: confirm, then drop the query param.
+  React.useEffect(() => {
+    if (!linkedinReturn) return
+    if (linkedinReturn === 'connected') {
+      toast.success(`Connected as ${initial.linkedin?.displayName ?? 'your LinkedIn account'}`)
+    } else if (linkedinReturn === 'denied') {
+      toast.info('LinkedIn wasn’t connected', { description: 'You can connect it any time from Settings.' })
+    } else {
+      toast.error('LinkedIn didn’t connect', {
+        description: 'LinkedIn returned an error. Try again, or continue and connect later from Settings.',
+      })
+    }
+    router.replace('/onboarding', { scroll: false })
+  }, [linkedinReturn, initial.linkedin, router])
+
+  // Keep pasted samples across refreshes. They're only sent at completion.
+  React.useEffect(() => {
+    if (answers.samplesText) safeStorage.set(SAMPLES_KEY, answers.samplesText)
+    else safeStorage.remove(SAMPLES_KEY)
+  }, [answers.samplesText])
+
+  const save = React.useCallback(async (patch: Record<string, unknown>) => {
     try {
-      // 1. Connect each selected repo
-      const selected = repos.filter(r => selectedRepoIds.has(r.githubRepoId))
-      for (const r of selected) {
-        const res = await fetch('/api/repos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            githubRepoId: r.githubRepoId,
-            name: r.name,
-            fullName: r.fullName,
-            url: r.url,
-            defaultBranch: r.defaultBranch,
-            isPrivate: r.isPrivate,
-          }),
+      const res = await patchJson('/api/onboarding', patch)
+      if (!res.ok) {
+        toast.error('Your progress didn’t save', {
+          description: await readError(res, 'Your answers stay on this page and are saved when you finish.'),
         })
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          throw new Error(err.error ?? `Failed to connect ${r.fullName}`)
+        return false
+      }
+      return true
+    } catch {
+      toast.error('Your progress didn’t save', {
+        description: 'Check your connection. Your answers stay on this page and are saved when you finish.',
+      })
+      return false
+    }
+  }, [])
+
+  const goTo = React.useCallback(
+    (index: number) => {
+      setDirection(index >= stepIndex ? 1 : -1)
+      setStepIndex(index)
+      setFurthest((f) => Math.max(f, index))
+      setStepError(null)
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })
+        window.setTimeout(() => document.getElementById(titleId)?.focus({ preventScroll: true }), reduce ? 0 : 200)
+      })
+    },
+    [stepIndex, reduce, titleId],
+  )
+
+  /* Repos step: connect what's new, then remember which repo to draft from first. */
+  const continueFromRepos = async (): Promise<boolean> => {
+    if (connectedRepos.length + selected.size === 0) {
+      setStepError('Pick at least one repo to continue.')
+      return false
+    }
+    const byId = new Map((github.repos ?? []).map((r) => [r.githubRepoId, r]))
+    const toConnect = Array.from(selected)
+      .map((id) => byId.get(id))
+      .filter((r): r is GithubRepoOption => !!r)
+
+    const nowConnected = [...connectedRepos]
+    const warnings: string[] = []
+    for (const repo of toConnect) {
+      const outcome = await connectRepo(repo)
+      if (!outcome.ok) {
+        setConnectedRepos(nowConnected)
+        if (await handlePlanError(outcome.res)) return false
+        setStepError(
+          await readError(
+            outcome.res,
+            `We couldn’t connect ${repo.fullName}. Check that you still have access to it, then try again.`,
+          ),
+        )
+        return false
+      }
+      if (outcome.warning) warnings.push(outcome.warning)
+      if (outcome.id && !nowConnected.some((r) => r.fullName === repo.fullName)) {
+        nowConnected.push({ id: outcome.id, fullName: repo.fullName })
+      }
+      setSelected((prev) => {
+        const next = new Set(prev)
+        next.delete(repo.githubRepoId)
+        return next
+      })
+    }
+    setConnectedRepos(nowConnected)
+    if (warnings.length > 0) {
+      toast.info('Connected without a webhook', {
+        description: `${warnings[0]} Install it later from Repositories so merged pull requests reach us.`,
+      })
+    }
+
+    // Draft first from the most recently active repo.
+    const activity = (fullName: string) => {
+      const gh = github.repos?.find((r) => r.fullName === fullName)
+      const iso = gh?.pushedAt ?? gh?.updatedAt
+      return iso ? new Date(iso).getTime() : 0
+    }
+    const newest = [...nowConnected].sort((a, b) => activity(b.fullName) - activity(a.fullName))[0]
+    if (newest) {
+      setFirstRepoId(newest.id)
+      safeStorage.set(FIRST_REPO_KEY, newest.id)
+      // Start reading and summarising the last two weeks now, while the user
+      // answers the questions. Best effort: /complete falls back to a full run.
+      void fetch('/api/onboarding/prefetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoId: newest.id }),
+      }).catch(() => undefined)
+    }
+    return true
+  }
+
+  const askNotifyEmail = answers.approvalMode === 'review' && needsNotifyEmail(user.email)
+
+  const validate = (): string | null => {
+    switch (step) {
+      case 'role':
+        return answers.role ? null : 'Pick the option closest to you to continue.'
+      case 'audience':
+        return answers.audiences.length > 0 ? null : 'Pick at least one audience to continue.'
+      case 'platforms':
+        return answers.platforms.length > 0 ? null : 'Pick at least one platform to continue.'
+      case 'voice': {
+        const check = checkVoiceSamples(answers.samplesText)
+        if (check.valid) return null
+        if (check.tooMany) return 'Paste at most 10 posts, or clear the box to skip.'
+        if (check.tooShort > 0) return 'Each post needs at least 40 characters. Remove the short ones or clear the box to skip.'
+        return 'Each post can be at most 5,000 characters.'
+      }
+      case 'cadence':
+        if (askNotifyEmail && !EMAIL_RE.test(answers.notifyEmail.trim())) {
+          return 'Enter the email address where approval requests should go.'
         }
-      }
-
-      // 2. Save voice settings — only on initial onboarding. In add-more mode
-      //    the user already has a voice profile they don't want overwritten.
-      if (!addMode) {
-        const tone = PERSONA_TO_TONE[persona] ?? 'professional'
-        const ctxBits: string[] = []
-        if (markdownOn) ctxBits.push('Use markdown formatting.')
-        if (noJargon) ctxBits.push('Avoid jargon.')
-        const composedContext = [extraContext.trim(), ctxBits.join(' ')].filter(Boolean).join('\n\n')
-
-        const voiceRes = await fetch('/api/voice', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tone,
-            technicalLevel: persona === 'technical' ? 9 : persona === 'casual' ? 4 : 7,
-            audience: persona === 'founder' ? 'engineering leaders' : persona === 'educator' ? 'general tech' : 'developers',
-            extraContext: composedContext,
-          }),
-        })
-        if (!voiceRes.ok) throw new Error('Failed to save voice profile')
-      }
-
-      router.push(addMode ? '/repositories' : '/dashboard')
-      router.refresh()
-    } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Something went wrong')
-    } finally {
-      setSubmitting(false)
+        return null
+      default:
+        return null
     }
   }
 
-  return (
-    <div className="w-full max-w-[720px] mx-auto">
-      {/* Stepper */}
-      <div className="flex items-center gap-md justify-center mb-xl">
-        {STEPS.map((s, i) => {
-          const done = i < stepIndex
-          const current = i === stepIndex
-          return (
-            <div key={s.key} className="flex items-center gap-md">
-              <div className="flex flex-col items-center gap-1">
-                <div
-                  className={`font-mono text-label-caps uppercase tracking-widest transition-colors ${
-                    current ? 'text-primary' : done ? 'text-on-surface' : 'text-outline-variant'
-                  }`}
-                >
-                  {s.label}
-                </div>
-                <div
-                  className={`h-[2px] w-16 rounded-full transition-colors ${
-                    current ? 'bg-primary' : done ? 'bg-on-surface/40' : 'bg-white/8'
-                  }`}
-                />
-              </div>
-              {i < STEPS.length - 1 && <span className="text-outline-variant">·</span>}
-            </div>
-          )
-        })}
-      </div>
+  const patchForStep = (s: QuestionStep): Record<string, unknown> => {
+    switch (s) {
+      case 'role':
+        return { ...(answers.role ? { role: answers.role } : {}), pitch: answers.pitch.trim() }
+      case 'audience':
+        return { audiences: answers.audiences }
+      case 'platforms':
+        return answers.platforms.length > 0 ? { platforms: answers.platforms } : {}
+      case 'voice':
+        return { tonePreset: answers.tonePreset }
+      case 'cadence':
+        return {
+          cadence: answers.cadence,
+          postTime: answers.postTime,
+          approvalMode: answers.approvalMode,
+          timezone: answers.timezone,
+        }
+      default:
+        return {}
+    }
+  }
 
-      <div className="text-center mb-xl">
-        <h1 className="font-display text-display-lg font-bold text-on-surface tracking-tighter">
-          {addMode ? (
-            <>Connect more <span className="text-primary">repos</span></>
-          ) : (
-            <>Initialize <span className="text-primary">CommitFlex</span></>
-          )}
-        </h1>
-        <p className="text-on-surface-variant mt-sm max-w-md mx-auto">
-          {addMode
-            ? 'Pick the repositories you want CommitFlex to watch. Already-connected ones are filtered out.'
-            : 'Connect your GitHub account so we can read your commits and generate posts in your voice.'}
-        </p>
-      </div>
+  const complete = async (overrides: Partial<Answers> = {}, repoId: string | null = firstRepoId) => {
+    const final = { ...answers, ...overrides }
+    const samples = checkVoiceSamples(final.samplesText).samples
+    const notifyEmail = final.notifyEmail.trim()
+    const res = await patchJson(
+      '/api/onboarding/complete',
+      {
+        role: final.role,
+        pitch: final.pitch.trim() || undefined,
+        audiences: final.audiences,
+        platforms: final.platforms,
+        tonePreset: final.tonePreset,
+        voiceSamples: samples,
+        cadence: final.cadence,
+        postTime: final.postTime,
+        approvalMode: final.approvalMode,
+        timezone: final.timezone,
+        ...(repoId ? { firstRepoId: repoId } : {}),
+        ...(notifyEmail && EMAIL_RE.test(notifyEmail) ? { notifyEmail } : {}),
+      },
+      'POST',
+    )
+    if (!res.ok) {
+      if (await handlePlanError(res)) return
+      const body = (await res.clone().json().catch(() => null)) as { code?: string } | null
+      if (body?.code === 'no_repos') {
+        goTo(0)
+        window.setTimeout(() => setStepError('Pick at least one repo to continue.'), 0)
+        return
+      }
+      setStepError(await readError(res, 'We couldn’t start autopilot. Your answers are saved; try again.'))
+      return
+    }
+    const data = (await res.json()) as CompleteResponse
+    safeStorage.remove(SAMPLES_KEY)
+    safeStorage.remove(FIRST_REPO_KEY)
+    setResult(data)
+    window.scrollTo({ top: 0 })
+  }
 
-      {/* Step body */}
-      <div className="space-y-lg">
-        {step === 'connect' && (
-          <div className="glass-card rounded-xl p-xl flex flex-col items-center gap-md">
-            <button
-              onClick={() => signIn('github', { callbackUrl: '/onboarding' })}
-              className="btn-primary-solid h-12 px-6 rounded-xl text-sm flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-              Continue with GitHub
-            </button>
-            <p className="font-mono text-code-sm text-outline-variant">
-              Read-only access · No writes to your repos
+  const onContinue = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    if (busy) return
+    setStepError(null)
+
+    const problem = validate()
+    if (problem) {
+      setStepError(problem)
+      return
+    }
+
+    setBusy(true)
+    try {
+      if (step === 'repos') {
+        if (!(await continueFromRepos())) return
+        void save({ step: STEPS[stepIndex + 1] })
+        goTo(stepIndex + 1)
+        return
+      }
+      if (step === 'cadence') {
+        await complete()
+        return
+      }
+      void save({ ...patchForStep(step), step: STEPS[stepIndex + 1] })
+      goTo(stepIndex + 1)
+    } catch {
+      setStepError('The request was interrupted. Check your connection and try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Five clicks to a first draft: connect repos, accept the defaults. */
+  const useRecommended = async () => {
+    if (busy) return
+    setStepError(null)
+    setBusy(true)
+    try {
+      if (!(await continueFromRepos())) return
+      setAnswers((prev) => ({ ...prev, ...RECOMMENDED }))
+      await complete(RECOMMENDED, safeStorage.get(FIRST_REPO_KEY) ?? firstRepoId)
+    } catch {
+      setStepError('The request was interrupted. Check your connection and try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onBack = () => {
+    if (stepIndex === 0 || busy) return
+    void save({ ...patchForStep(step), step: STEPS[stepIndex - 1] })
+    goTo(stepIndex - 1)
+  }
+
+  /* Rail summaries for answered steps */
+  const summaries: Record<QuestionStep, string | null> = {
+    repos:
+      connectedRepos.length === 1
+        ? (connectedRepos[0].fullName.split('/').pop() ?? null)
+        : connectedRepos.length > 1
+          ? `${connectedRepos.length} repos`
+          : null,
+    role: ROLE_OPTIONS.find((o) => o.value === answers.role)?.label ?? null,
+    audience:
+      answers.audiences
+        .map((a) => AUDIENCE_OPTIONS.find((o) => o.value === a)?.label)
+        .filter(Boolean)
+        .join(', ') || null,
+    platforms: answers.platforms.map(platformLabel).join(' and ') || null,
+    voice: TONE_OPTIONS.find((o) => o.value === answers.tonePreset)?.label ?? null,
+    cadence: CADENCE_OPTIONS.find((o) => o.value === answers.cadence)?.label ?? null,
+  }
+  const railSteps = STEPS.map((key) => ({ key, label: STEP_LABELS[key], summary: summaries[key] }))
+  const total = STEPS.length
+  const selectedCount = connectedRepos.length + selected.size
+  const showTrialNote = plan.status === 'trialing' && selectedCount > 1
+  const linkedinNeedsConnect =
+    answers.platforms.includes('linkedin') && state.linkedinAvailable && state.linkedin?.status !== 'active'
+
+  let body: React.ReactNode = null
+  switch (step) {
+    case 'repos':
+      body = (
+        <div className="flex flex-col gap-6">
+          <StepHeader
+            index={stepIndex}
+            total={total}
+            titleId={titleId}
+            title="Which repos should CommitFlex watch?"
+            helper="Pick the projects you’d talk about publicly. We’ll add a webhook so merged pull requests and releases reach us automatically."
+          />
+          <RepoPicker
+            repos={github.repos}
+            loading={github.loading}
+            error={github.error}
+            onRetry={github.retry}
+            accessUrl={github.accessUrl}
+            selected={selected}
+            connected={connectedNames}
+            max={repoMax}
+            onToggle={(id) => {
+              setStepError(null)
+              setSelected((prev) => {
+                const next = new Set(prev)
+                if (next.has(id)) next.delete(id)
+                else next.add(id)
+                return next
+              })
+            }}
+            onLimitClick={() =>
+              openUpgrade({ code: 'limit_reached', limit: 'repos', used: selectedCount, max: repoMax }, 'pro')
+            }
+          />
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-fg-muted tabular-nums" aria-live="polite">
+              {selectedCount} of {repoMax} {repoMax === 1 ? 'repo' : 'repos'} selected.
+              {connectedRepos.length > 0 && ' Repos you’ve already connected are managed from Repositories.'}
             </p>
-          </div>
-        )}
-
-        {step === 'repository' && (
-          <div className="space-y-md">
-            <div className="flex items-baseline justify-between">
-              <div>
-                <h2 className="font-display text-headline-md font-bold text-on-surface">Select Repositories</h2>
-                <p className="text-on-surface-variant text-code-sm mt-1">
-                  We&apos;ll index these to build your custom knowledge base.
+            {showTrialNote && (
+              <Callout tone="info" title="Your trial includes 10 repos.">
+                On the Free plan we’ll keep watching the first one.
+              </Callout>
+            )}
+            {!needsNotifyEmail(user.email) && (
+              <div className="flex flex-col items-start gap-1 border-t border-line pt-4">
+                <Button
+                  type="button"
+                  variant="link"
+                  onClick={useRecommended}
+                  disabled={busy || selectedCount === 0}
+                  className="text-sm"
+                >
+                  Use recommended settings
+                </Button>
+                <p className="text-sm text-fg-muted">
+                  Skip the questions: plain technical posts for developers on LinkedIn and X, drafted when you ship,
+                  sent to you for approval first. Change any of it later in Settings.
                 </p>
-              </div>
-              <span className="font-mono text-label-caps uppercase tracking-widest text-primary">
-                {selectedRepoIds.size} selected
-              </span>
-            </div>
-
-            <input
-              value={repoQuery}
-              onChange={e => setRepoQuery(e.target.value)}
-              placeholder="Search repositories..."
-              className="w-full rounded-lg bg-transparent border border-white/8 px-md py-sm text-sm font-mono text-on-surface placeholder:text-outline-variant focus:outline-none focus:border-primary/50 transition-colors"
-            />
-
-            {reposLoading && (
-              <div className="flex items-center justify-center py-12 gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />
-                <span className="font-mono text-code-sm uppercase tracking-widest text-on-surface-variant">Fetching</span>
               </div>
             )}
-            {reposError && <p className="font-mono text-code-sm text-error">{reposError}</p>}
-
-            <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
-              {filteredRepos.map(r => {
-                const selected = selectedRepoIds.has(r.githubRepoId)
-                return (
-                  <button
-                    key={r.githubRepoId}
-                    type="button"
-                    onClick={() => toggleRepo(r.githubRepoId)}
-                    className={`w-full text-left rounded-lg border p-md flex items-center justify-between gap-md transition-colors ${
-                      selected
-                        ? 'border-primary/50 bg-primary/5'
-                        : 'border-white/8 hover:border-white/20 hover:bg-white/[0.03]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-md min-w-0">
-                      <span className="text-on-surface-variant shrink-0">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776"/></svg>
-                      </span>
-                      <div className="min-w-0">
-                        <p className="font-mono text-sm text-on-surface truncate">{r.fullName}</p>
-                        <p className="font-mono text-code-sm text-on-surface-variant mt-0.5">
-                          {r.language ? `★ ${r.language} · ` : ''}{r.updatedAt ? `Updated ${new Date(r.updatedAt).toLocaleDateString()}` : ''}
-                        </p>
-                      </div>
-                    </div>
-                    <span className={`shrink-0 w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
-                      selected ? 'bg-primary border-primary' : 'border-white/20'
-                    }`}>
-                      {selected && (
-                        <svg className="w-3 h-3 text-on-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                        </svg>
-                      )}
-                    </span>
-                  </button>
-                )
-              })}
-              {!reposLoading && filteredRepos.length === 0 && (
-                <p className="text-center text-on-surface-variant py-6 font-mono text-code-sm">
-                  No matching repositories.
-                </p>
-              )}
-            </div>
           </div>
-        )}
-
-        {step === 'voice' && (
-          <div className="space-y-md">
-            <div>
-              <h2 className="font-display text-headline-md font-bold text-on-surface">Persona Engine</h2>
-              <p className="text-on-surface-variant text-code-sm mt-1">
-                Define the tone and vocabulary used in generated outputs.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-sm">
-              {PERSONA_OPTIONS.map(p => {
-                const active = persona === p.key
-                return (
-                  <button
-                    key={p.key}
-                    onClick={() => setPersona(p.key)}
-                    className={`rounded-lg border px-md py-md flex flex-col items-center gap-1 transition-colors ${
-                      active
-                        ? 'border-primary/50 bg-primary/10 text-primary'
-                        : 'border-white/8 hover:border-white/20 text-on-surface-variant hover:text-on-surface'
-                    }`}
-                  >
-                    <span className="text-xl">{p.icon}</span>
-                    <span className="font-mono text-code-sm uppercase tracking-widest">{p.label}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {step === 'identity' && (
-          <div className="space-y-md">
-            <div>
-              <h2 className="font-display text-headline-md font-bold text-on-surface">Writing Identity</h2>
-              <p className="text-on-surface-variant text-code-sm mt-1">
-                Provide specific nuances, taboos, or preferred styles unique to your brand.
-              </p>
-            </div>
-            <div className="space-y-1">
-              <label className="font-mono text-label-caps uppercase tracking-widest text-on-surface-variant">
-                Prompt_suffix
-              </label>
-              <textarea
-                value={extraContext}
-                onChange={e => setExtraContext(e.target.value)}
-                placeholder="e.g. Always use concise sentences. Avoid passive voice. Reference our DevExperience or User Impact when relevant."
-                rows={6}
-                maxLength={2000}
-                className="w-full rounded-lg bg-surface-container-low border border-white/8 px-md py-sm text-sm font-mono text-on-surface placeholder:text-outline-variant focus:outline-none focus:border-primary/50 transition-colors resize-none"
+        </div>
+      )
+      break
+    case 'role':
+      body = (
+        <div className="flex flex-col gap-6">
+          <StepHeader index={stepIndex} total={total} titleId={titleId} title="What best describes you?" />
+          <RoleStep
+            role={answers.role}
+            pitch={answers.pitch}
+            onRole={(r) => update('role', r)}
+            onPitch={(p) => update('pitch', p)}
+            error={stepError}
+            labelledBy={titleId}
+          />
+        </div>
+      )
+      break
+    case 'audience':
+      body = (
+        <div className="flex flex-col gap-6">
+          <StepHeader
+            index={stepIndex}
+            total={total}
+            titleId={titleId}
+            title="Who should your posts reach?"
+            helper="Pick up to two. This changes what we explain and what we skip."
+          />
+          <AudienceStep
+            audiences={answers.audiences}
+            onChange={(a) => update('audiences', a)}
+            error={stepError}
+            labelledBy={titleId}
+          />
+        </div>
+      )
+      break
+    case 'platforms':
+      body = (
+        <div className="flex flex-col gap-6">
+          <StepHeader index={stepIndex} total={total} titleId={titleId} title="Where do you want to post?" />
+          <PlatformsStep
+            platforms={answers.platforms}
+            onChange={(p) => update('platforms', p)}
+            linkedin={state.linkedin}
+            linkedinAvailable={state.linkedinAvailable}
+            connectHref="/api/integrations/linkedin/connect?returnTo=/onboarding"
+            onBeforeConnect={async () => {
+              await save({ platforms: answers.platforms.length ? answers.platforms : ['linkedin'], step: 'platforms' })
+            }}
+            error={stepError}
+            labelledBy={titleId}
+          />
+        </div>
+      )
+      break
+    case 'voice':
+      body = (
+        <div className="flex flex-col gap-6">
+          <StepHeader index={stepIndex} total={total} titleId={titleId} title="How should your posts sound?" />
+          <VoiceStep
+            tone={answers.tonePreset}
+            onTone={(t) => update('tonePreset', t)}
+            samplesText={answers.samplesText}
+            onSamplesText={(s) => update('samplesText', s)}
+            samplesError={stepError}
+          />
+        </div>
+      )
+      break
+    case 'cadence':
+      body = (
+        <div className="flex flex-col gap-6">
+          <StepHeader index={stepIndex} total={total} titleId={titleId} title="How often should CommitFlex post for you?" />
+          <CadenceStep
+            cadence={answers.cadence}
+            onCadence={(c) => update('cadence', c)}
+            postTime={answers.postTime}
+            onPostTime={(t) => update('postTime', t)}
+            timezone={answers.timezone}
+            onTimezone={(tz) => update('timezone', tz)}
+            approvalMode={answers.approvalMode}
+            onApprovalMode={(m) => update('approvalMode', m)}
+            plan={plan}
+            onLocked={(feature) => openUpgrade({ code: 'feature_locked', feature }, 'pro')}
+          />
+          {askNotifyEmail && (
+            <Field
+              label="Where should we send drafts for approval?"
+              description="Your GitHub email is private, so we need an address for the approval emails. We only use it for CommitFlex notifications."
+              error={stepError ?? undefined}
+            >
+              <Input
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={answers.notifyEmail}
+                onChange={(e) => update('notifyEmail', e.target.value)}
+                placeholder="you@example.com"
               />
-              <div className="flex items-center justify-between pt-1">
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMarkdownOn(v => !v)}
-                    className={`chip ${markdownOn ? 'chip-primary' : 'chip-secondary opacity-60'}`}
-                  >
-                    Markdown
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNoJargon(v => !v)}
-                    className={`chip ${noJargon ? 'chip-primary' : 'chip-secondary opacity-60'}`}
-                  >
-                    No Jargon
-                  </button>
-                </div>
-                <span className="font-mono text-code-sm text-outline-variant">
-                  {extraContext.length} / 2000
-                </span>
-              </div>
+            </Field>
+          )}
+        </div>
+      )
+      break
+  }
+
+  // Role, audience, platforms and voice render their own error next to the field.
+  const footerError = stepError && (step === 'repos' || (step === 'cadence' && !askNotifyEmail)) ? stepError : null
+  const wide = step === 'voice'
+
+  if (result) {
+    return (
+      <div className="min-h-dvh bg-canvas lg:grid lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="sticky top-0 hidden h-dvh border-r border-line bg-surface lg:block">
+          <OnboardingRail
+            steps={railSteps}
+            currentIndex={STEPS.length}
+            canVisit={() => false}
+            onVisit={() => undefined}
+            user={user}
+          />
+        </aside>
+        <div className="flex min-h-dvh flex-col">
+          <div className="border-b border-line bg-surface px-4 py-4 sm:px-6 lg:hidden">
+            <Logo href="/" />
+          </div>
+          <main className="flex-1 px-4 py-10 sm:px-6 lg:px-16 lg:py-16">
+            <div className="mx-auto max-w-[720px]">
+              <OnboardingSuccess
+                result={result}
+                approvalMode={answers.approvalMode}
+                showLinkedInConnect={linkedinNeedsConnect}
+              />
+            </div>
+          </main>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-dvh bg-canvas lg:grid lg:grid-cols-[300px_minmax(0,1fr)]">
+      <aside className="sticky top-0 hidden h-dvh border-r border-line bg-surface lg:block">
+        <OnboardingRail
+          steps={railSteps}
+          currentIndex={stepIndex}
+          canVisit={(i) => i <= furthest && !busy}
+          onVisit={(i) => {
+            void save({ ...patchForStep(step), step: STEPS[i] })
+            goTo(i)
+          }}
+          user={user}
+        />
+      </aside>
+
+      <form onSubmit={onContinue} className="flex min-h-dvh min-w-0 flex-col" noValidate>
+        <div className="lg:hidden">
+          <OnboardingTopBar steps={railSteps} currentIndex={stepIndex} />
+        </div>
+
+        <main ref={mainRef} className="flex-1 px-4 py-8 sm:px-6 sm:py-10 lg:px-16 lg:py-16">
+          <div className={cn('mx-auto', wide ? 'max-w-[920px]' : 'max-w-[680px]')}>
+            <AnimatePresence mode="wait" initial={false} custom={direction}>
+              <motion.div
+                key={step}
+                initial={{ opacity: 0, x: reduce ? 0 : direction * 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: reduce ? 0 : direction * -12 }}
+                transition={{ duration: reduce ? 0.1 : 0.18, ease: [0.2, 0, 0, 1] }}
+              >
+                {body}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </main>
+
+        <footer className="sticky bottom-0 z-[2] border-t border-line bg-surface">
+          <div className={cn('mx-auto flex flex-col gap-2 px-4 py-3 sm:px-6 lg:px-16', wide ? 'max-w-[1048px]' : 'max-w-[808px]')}>
+            {footerError && (
+              <p role="alert" className="text-sm text-danger">
+                {footerError}
+              </p>
+            )}
+            <div className="flex items-center justify-between gap-3">
+              <Button type="button" variant="ghost" onClick={onBack} disabled={stepIndex === 0 || busy}>
+                <ArrowLeft className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                Back
+              </Button>
+              <Button type="submit" size="lg" loading={busy} className="min-w-[148px]">
+                {step === 'cadence' ? (
+                  busy ? 'Starting autopilot' : 'Start autopilot'
+                ) : step === 'repos' && busy ? (
+                  'Connecting repos'
+                ) : (
+                  'Continue'
+                )}
+              </Button>
             </div>
           </div>
-        )}
-
-        {submitError && (
-          <p className="font-mono text-code-sm text-error">{submitError}</p>
-        )}
-      </div>
-
-      {/* Footer nav */}
-      <div className="flex items-center justify-between mt-xl pt-md border-t border-white/8">
-        {addMode ? (
-          <button
-            onClick={() => router.push('/repositories')}
-            className="font-mono text-code-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors"
-          >
-            ← Cancel
-          </button>
-        ) : (
-          <button
-            onClick={prev}
-            disabled={stepIndex === 0}
-            className="font-mono text-code-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-30"
-          >
-            ← Back to previous
-          </button>
-        )}
-        {(addMode && step === 'repository') || step === 'identity' ? (
-          <button
-            onClick={handleFinish}
-            disabled={submitting || selectedRepoIds.size === 0}
-            className="btn-primary-solid h-11 px-6 rounded-xl text-sm disabled:opacity-50"
-          >
-            {submitting
-              ? (addMode ? 'Connecting…' : 'Finishing...')
-              : (addMode
-                  ? `Connect ${selectedRepoIds.size || ''} repo${selectedRepoIds.size === 1 ? '' : 's'}`.trim()
-                  : 'Finish Onboarding')}
-          </button>
-        ) : (
-          <button
-            onClick={next}
-            disabled={!canNext}
-            className="btn-primary-solid h-11 px-6 rounded-xl text-sm disabled:opacity-50"
-          >
-            Continue →
-          </button>
-        )}
-      </div>
+        </footer>
+      </form>
     </div>
   )
 }

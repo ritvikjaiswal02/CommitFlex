@@ -1,69 +1,52 @@
-import { eq, and } from 'drizzle-orm'
 import { z } from 'zod'
 import { auth } from '@/auth'
-import { db } from '@/lib/db/client'
-import { accounts } from '@/lib/db/schema'
-import { getUserRepos, createRepo, updateRepoWebhook } from '@/lib/db/queries/repos'
-import { createOctokit } from '@/lib/github/client'
-import {
-  generateWebhookSecret,
-  installRepoWebhook,
-  splitFullName,
-} from '@/lib/github/webhook'
+import { getUserRepos, toClientRepo } from '@/lib/db/queries/repos'
+import { RepoConnectError, connectRepo } from '@/lib/repos/connect'
+import { planErrorToResponse } from '@/lib/plans'
+import type { RepoRow } from '@/lib/db/schema'
+import { apiError, invalidRequest, readJson, unauthorized } from '@/lib/validators/http'
 
+/**
+ * Only the repository's identity comes from the client. Everything else
+ * (name, URL, default branch, visibility) is read from GitHub with the
+ * user's token. Older clients still send those fields; they're ignored.
+ */
 const CreateRepoSchema = z.object({
-  githubRepoId: z.string(),
-  name: z.string().min(1),
-  fullName: z.string().min(1),
-  url: z.string().url(),
-  defaultBranch: z.string().default('main'),
-  isPrivate: z.boolean().default(false),
+  githubRepoId: z.union([z.string().regex(/^\d+$/), z.number().int().positive()]).transform(Number),
 })
 
 export async function GET() {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session?.user?.id) return unauthorized()
 
   const repos = await getUserRepos(session.user.id)
-  return Response.json({ repos })
+  return Response.json({ repos: repos.map(toClientRepo) })
 }
 
+/**
+ * Connects a repo and installs a webhook for push, pull_request and release.
+ * A failed webhook install doesn't block the connect: manual drafts and the
+ * weekly digest still work, and the user gets a warning.
+ */
 export async function POST(req: Request) {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = session?.user?.id
+  if (!userId) return unauthorized()
 
-  const body = await req.json().catch(() => null)
-  const parsed = CreateRepoSchema.safeParse(body)
-  if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 })
+  const parsed = CreateRepoSchema.safeParse(await readJson(req))
+  if (!parsed.success) return invalidRequest(parsed.error)
 
-  const repo = await createRepo({ ...parsed.data, userId: session.user.id })
-
-  // Best-effort webhook install. Failures here (e.g. user denied
-  // admin:repo_hook scope, or GitHub returned 422) do NOT block the connect —
-  // we flip autoGenerate off and surface a warning instead.
-  let webhookWarning: string | null = null
   try {
-    const [account] = await db
-      .select()
-      .from(accounts)
-      .where(and(eq(accounts.userId, session.user.id), eq(accounts.provider, 'github')))
-      .limit(1)
-    if (!account?.access_token) throw new Error('Missing GitHub access token')
-
-    const { owner, repo: repoName } = splitFullName(repo.fullName)
-    const secret = generateWebhookSecret()
-    const octokit = createOctokit(account.access_token)
-    const webhookId = await installRepoWebhook({ octokit, owner, repo: repoName, secret })
-
-    await updateRepoWebhook(repo.id, { webhookSecret: secret, webhookId, autoGenerate: true })
-    return Response.json({ repo: { ...repo, webhookId, autoGenerate: true } }, { status: 201 })
+    const { repo, warning } = await connectRepo(userId, { githubRepoId: parsed.data.githubRepoId })
+    return Response.json({ repo: toClientRepo(repo), ...(warning ? { warning } : {}) }, { status: 201 })
   } catch (err) {
-    webhookWarning = err instanceof Error ? err.message : String(err)
-    await updateRepoWebhook(repo.id, { autoGenerate: false })
+    if (err instanceof RepoConnectError) {
+      const existing = err.extra?.repo as RepoRow | undefined
+      return apiError(err.status, err.code, err.message, existing ? { repo: toClientRepo(existing) } : undefined)
+    }
+    const res = planErrorToResponse(err)
+    if (res) return res
+    console.error('[repos] connect failed', err)
+    return apiError(502, 'upstream_error', "GitHub didn't answer. Try connecting the repository again in a moment.")
   }
-
-  return Response.json({
-    repo: { ...repo, autoGenerate: false },
-    warning: `Webhook install failed: ${webhookWarning}. Manual generation still works.`,
-  }, { status: 201 })
 }

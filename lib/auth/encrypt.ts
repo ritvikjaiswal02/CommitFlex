@@ -29,3 +29,32 @@ export function decrypt(ciphertext: string): string {
   decipher.setAuthTag(authTag)
   return decipher.update(encrypted).toString('utf8') + decipher.final('utf8')
 }
+
+/** Prefix that marks a value written by `sealSecret`. */
+const SEALED_PREFIX = 'enc:v1:'
+
+export function isEncryptionConfigured(): boolean {
+  const hex = process.env.OAUTH_TOKEN_ENCRYPTION_KEY
+  return !!hex && hex.length === 64
+}
+
+/**
+ * Encrypts a secret for storage (GitHub tokens, webhook secrets). Without
+ * OAUTH_TOKEN_ENCRYPTION_KEY it stores the value as is, so local setups keep
+ * working; production must set the key (see README).
+ */
+export function sealSecret(plaintext: string): string {
+  if (!isEncryptionConfigured()) return plaintext
+  return `${SEALED_PREFIX}${encrypt(plaintext)}`
+}
+
+/** Reads a value written by `sealSecret`, or a legacy plaintext value. */
+export function openSecret(stored: string | null | undefined): string | null {
+  if (!stored) return null
+  if (!stored.startsWith(SEALED_PREFIX)) return stored
+  return decrypt(stored.slice(SEALED_PREFIX.length))
+}
+
+export function isSealed(stored: string | null | undefined): boolean {
+  return !!stored && stored.startsWith(SEALED_PREFIX)
+}

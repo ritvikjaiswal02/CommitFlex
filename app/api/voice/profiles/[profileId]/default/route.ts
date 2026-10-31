@@ -1,14 +1,24 @@
 import { auth } from '@/auth'
-import { getVoiceProfile, setDefaultProfile } from '@/lib/db/queries/voice'
+import { setDefaultProfile } from '@/lib/db/queries/voice'
+import { ownProfile, serializeProfile, serverError, unauthorized } from '../../../_shared'
 
+export const dynamic = 'force-dynamic'
+
+/** POST /api/voice/profiles/:id/default — makes this the profile autopilot writes with. */
 export async function POST(_req: Request, { params }: { params: { profileId: string } }) {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = session?.user?.id
+  if (!userId) return unauthorized()
 
-  const profile = await getVoiceProfile(params.profileId)
-  if (!profile) return Response.json({ error: 'Not found' }, { status: 404 })
-  if (profile.userId !== session.user.id) return Response.json({ error: 'Forbidden' }, { status: 403 })
+  try {
+    const own = await ownProfile(params.profileId, userId)
+    if ('error' in own) return own.error
 
-  const updated = await setDefaultProfile(session.user.id, params.profileId)
-  return Response.json({ profile: updated })
+    const updated = await setDefaultProfile(userId, params.profileId)
+    if (!updated) return Response.json({ error: 'Voice profile not found', code: 'not_found' }, { status: 404 })
+    return Response.json({ profile: serializeProfile(updated) })
+  } catch (err) {
+    console.error('[voice/profiles/:id/default] failed', err)
+    return serverError('We couldn’t change your default voice. Try again.')
+  }
 }

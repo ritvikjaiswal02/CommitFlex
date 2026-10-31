@@ -1,0 +1,82 @@
+/*
+ * CommitFlex design tokens for the extension. Mirrors app/globals.css so the
+ * popup, options page and on-page panels look like the app. Colours are RGB
+ * channels so alpha can be applied with rgb(var(--c-x) / a).
+ *
+ * `.cx-root` is the html element of extension pages and the top element
+ * inside each content-script shadow root. data-theme="dark" switches palettes.
+ */
+.cx-root {
+  --c-canvas: 244 245 248;
+  --c-surface: 255 255 255;
+  --c-sunken: 236 238 243;
+  --c-line: 221 225 233;
+  --c-line-strong: 196 202 214;
+  --c-fg: 16 19 31;
+  --c-fg-muted: 74 80 99;
+  --c-fg-subtle: 107 114 134;
+  --c-accent: 43 63 224;
+  --c-accent-hover: 34 51 196;
+  --c-accent-soft: 233 236 255;
+  --c-accent-ink: 31 46 168;
+  --c-accent-fg: 255 255 255;
+  --c-marker: 255 240 122;
+  --c-marker-fg: 61 53 0;
+  --c-success: 15 123 84;
+  --c-success-soft: 227 245 236;
+  --c-success-fg: 255 255 255;
+  --c-warning: 161 92 0;
+  --c-warning-soft: 255 242 219;
+  --c-danger: 200 50 60;
+  --c-danger-soft: 253 232 233;
+  --c-danger-fg: 255 255 255;
+  --c-linkedin: 10 102 194;
+  --c-x: 16 19 31;
+
+  --shadow-color: 16 19 31;
+  --shadow-sm: 0 1px 2px rgb(var(--shadow-color) / 0.06), 0 1px 1px rgb(var(--shadow-color) / 0.04);
+  --shadow-md: 0 8px 24px -8px rgb(var(--shadow-color) / 0.18), 0 2px 6px rgb(var(--shadow-color) / 0.06);
+  --shadow-lg: 0 24px 48px -16px rgb(var(--shadow-color) / 0.28), 0 2px 6px rgb(var(--shadow-color) / 0.06);
+
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  --font-sans: 'CommitFlex Sans', 'Schibsted Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'CommitFlex Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  color-scheme: light;
+}
+
+.cx-root[data-theme='dark'] {
+  --c-canvas: 14 17 32;
+  --c-surface: 21 26 44;
+  --c-sunken: 10 13 25;
+  --c-line: 38 44 68;
+  --c-line-strong: 57 65 94;
+  --c-fg: 237 239 247;
+  --c-fg-muted: 167 174 194;
+  --c-fg-subtle: 125 133 155;
+  --c-accent: 123 135 255;
+  --c-accent-hover: 149 160 255;
+  --c-accent-soft: 29 35 82;
+  --c-accent-ink: 185 192 255;
+  --c-accent-fg: 14 17 32;
+  --c-marker: 79 72 12;
+  --c-marker-fg: 255 243 160;
+  --c-success: 61 214 140;
+  --c-success-soft: 15 46 34;
+  --c-success-fg: 14 17 32;
+  --c-warning: 242 176 74;
+  --c-warning-soft: 51 38 12;
+  --c-danger: 255 107 115;
+  --c-danger-soft: 58 21 25;
+  --c-danger-fg: 14 17 32;
+  --c-linkedin: 76 154 234;
+  --c-x: 237 239 247;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.12), 0 1px 1px rgb(0 0 0 / 0.08);
+  --shadow-md: 0 8px 24px -8px rgb(0 0 0 / 0.36), 0 2px 6px rgb(0 0 0 / 0.12);
+  --shadow-lg: 0 24px 48px -16px rgb(0 0 0 / 0.56), 0 2px 6px rgb(0 0 0 / 0.12);
+
+  color-scheme: dark;
+}

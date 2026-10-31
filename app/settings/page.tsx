@@ -1,129 +1,123 @@
-import { auth } from '@/auth'
+import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { eq, and } from 'drizzle-orm'
-import Link from 'next/link'
-import { db } from '@/lib/db/client'
-import { accounts } from '@/lib/db/schema'
-import { listVoiceProfiles, upsertVoiceSettings } from '@/lib/db/queries/voice'
-import { getUserRepos } from '@/lib/db/queries/repos'
+import { auth } from '@/auth'
+import { AppShell } from '@/components/app-shell'
+import { PageHeader } from '@/components/ui/page-header'
+import { ErrorState } from '@/components/ui/error-state'
+import { getUserPlan, limitFor } from '@/lib/plans'
+import { getUserProfile } from '@/lib/db/queries/onboarding'
+import { listVoiceProfiles } from '@/lib/db/queries/voice'
+import { getLinkedInConnectionSummary } from '@/lib/db/queries/integrations'
+import { settle } from '@/components/app/server-context'
+import { SettingsTabs, isSettingsTab, type SettingsTab } from '@/components/settings/settings-tabs'
+import { ProfileForm } from '@/components/settings/profile-form'
+import { AutopilotForm } from '@/components/settings/autopilot-form'
+import { ConnectionsPanel } from '@/components/settings/connections-panel'
+import { NotificationsForm } from '@/components/settings/notifications-form'
 import { VoiceProfileManager } from '@/components/voice-profile-manager'
-import { RepoManager } from '@/components/repo-manager'
-import { AppShell } from '@/components/app-sidebar'
-import {
-  AccountCard,
-  NotificationsCard,
-  DangerZoneCard,
-} from '@/components/settings-account'
+import { AccountPanel } from '@/components/settings-account'
 
-function SectionHeader({ label, hint }: { label: string; hint?: string }) {
-  return (
-    <div>
-      <h2 className="font-mono text-label-caps uppercase tracking-widest text-primary">{label}</h2>
-      {hint && <p className="text-on-surface-variant mt-1">{hint}</p>}
-    </div>
-  )
+export const metadata: Metadata = {
+  title: 'Settings',
+  description: 'Your profile, voice, autopilot schedule, connections and notifications.',
 }
 
-export default async function SettingsPage() {
+export const dynamic = 'force-dynamic'
+
+interface PageProps {
+  searchParams?: { tab?: string; linkedin?: string }
+}
+
+export default async function SettingsPage({ searchParams }: PageProps) {
   const session = await auth()
-  if (!session?.user?.id) redirect('/login')
+  const user = session?.user
+  if (!user?.id) redirect('/login?next=%2Fsettings')
+  const userId = user.id
 
-  const userId = session.user.id
+  const profileResult = await settle(getUserProfile(userId), 'getUserProfile')
+  if (profileResult.ok && !profileResult.value?.onboardedAt) redirect('/onboarding')
 
-  const [initialProfiles, repos, githubAccount] = await Promise.all([
-    listVoiceProfiles(userId),
-    getUserRepos(userId),
-    db.select({ providerAccountId: accounts.providerAccountId, scope: accounts.scope })
-      .from(accounts)
-      .where(and(eq(accounts.userId, userId), eq(accounts.provider, 'github')))
-      .limit(1),
+  const [planResult, voicesResult, linkedinResult] = await Promise.all([
+    settle(getUserPlan(userId), 'getUserPlan'),
+    settle(listVoiceProfiles(userId), 'listVoiceProfiles'),
+    settle(getLinkedInConnectionSummary(userId), 'getLinkedInConnectionSummary'),
   ])
-  let profiles = initialProfiles
 
-  // First-run seed: every account gets a Default profile so the form is never empty.
-  if (profiles.length === 0) {
-    await upsertVoiceSettings(userId, {
-      tone: 'professional',
-      technicalLevel: 7,
-      audience: 'developers',
-    })
-    profiles = await listVoiceProfiles(userId)
+  const shellUser = { id: userId, name: user.name, email: user.email, image: user.image }
+  if (!profileResult.ok || !planResult.ok || !voicesResult.ok || !profileResult.value) {
+    return (
+      <AppShell user={shellUser}>
+        <PageHeader title="Settings" description="Your profile, voice, schedule, connections and notifications." />
+        <div className="rounded-lg border border-line bg-surface px-5">
+          <ErrorState
+            title="Settings didn't load"
+            description="We couldn't reach the database. Reload the page in a moment; nothing you saved was lost."
+          />
+        </div>
+      </AppShell>
+    )
   }
 
+  const profile = profileResult.value
+  const plan = planResult.value
+  // An account without a voice profile gets its default created lazily by
+  // the voice editor (a server action), never during this render.
+  const voices = voicesResult.value
+  const linkedin = linkedinResult.ok ? linkedinResult.value : null
+
+  const requestedTab = searchParams?.tab
+  const tab: SettingsTab = isSettingsTab(requestedTab) ? requestedTab : 'profile'
+  const linkedinReturn = searchParams?.linkedin ?? null
+  const userView = { name: user.name ?? null, email: user.email ?? null, image: user.image ?? null }
+  const voiceViews = voices.map((v) => ({
+    id: v.id,
+    name: v.name,
+    isDefault: v.isDefault,
+    tone: v.tone,
+    technicalLevel: v.technicalLevel,
+    audience: v.audience,
+    extraContext: v.extraContext ?? null,
+  }))
+
   return (
-    <AppShell user={{ name: session.user.name, email: session.user.email, image: session.user.image }}>
-      <header className="mb-xl">
-        <h1 className="font-display text-headline-md font-bold text-on-surface">Settings</h1>
-        <p className="text-on-surface-variant mt-1">
-          Account, voice, notifications, and dangerous things.
-        </p>
-      </header>
-
-      <div className="max-w-3xl space-y-xl">
-        {/* Account */}
-        <section className="space-y-md">
-          <SectionHeader label="Account" hint="Profile, connected accounts, and sign-out." />
-          <AccountCard
-            info={{
-              name: session.user.name,
-              email: session.user.email,
-              image: session.user.image,
-              githubUsername: githubAccount[0]?.providerAccountId ?? null,
-            }}
-          />
-        </section>
-
-        {/* Voice profiles */}
-        <section className="space-y-md">
-          <SectionHeader
-            label="Voice profiles"
-            hint="Multiple voices — switch the default for different posting styles."
-          />
-          <div className="glass-card rounded-xl overflow-hidden p-lg">
-            <VoiceProfileManager initialProfiles={profiles.map(p => ({
-              id: p.id,
-              name: p.name,
-              isDefault: p.isDefault,
-              tone: p.tone,
-              technicalLevel: p.technicalLevel,
-              audience: p.audience,
-              extraContext: p.extraContext,
-            }))} />
-          </div>
-        </section>
-
-        {/* Notifications */}
-        <section className="space-y-md">
-          <SectionHeader label="Notifications" hint="When CommitFlex should ping you." />
-          <NotificationsCard />
-        </section>
-
-        {/* Repositories */}
-        <section className="space-y-md">
-          <SectionHeader
-            label="Connected repositories"
-            hint="Repos whose commits power your generations."
-          />
-          <div className="glass-card rounded-xl overflow-hidden p-lg">
-            <RepoManager repos={repos} />
-          </div>
-          <p className="font-mono text-code-sm text-outline-variant">
-            Need to add more? Head to{' '}
-            <Link href="/repositories" className="text-primary hover:underline">
-              Repositories
-            </Link>{' '}or{' '}
-            <Link href="/onboarding?add=1" className="text-primary hover:underline">
-              connect a new one
-            </Link>.
-          </p>
-        </section>
-
-        {/* Danger zone */}
-        <section className="space-y-md">
-          <SectionHeader label="Danger zone" hint="Irreversible actions. Read carefully." />
-          <DangerZoneCard />
-        </section>
-      </div>
+    <AppShell user={shellUser}>
+      <PageHeader title="Settings" description="Your profile, voice, schedule, connections and notifications." />
+      <SettingsTabs
+        initialTab={tab}
+        linkedinReturn={linkedinReturn}
+        counts={{ connections: linkedin && linkedin.status !== 'active' ? 1 : 0 }}
+        panels={{
+          profile: (
+            <ProfileForm
+              user={userView}
+              profile={{
+                role: profile.role,
+                pitch: profile.pitch,
+                audiences: profile.audiences ?? [],
+                timezone: profile.timezone,
+              }}
+            />
+          ),
+          voice: <VoiceProfileManager initialProfiles={voiceViews} maxProfiles={limitFor(plan.id, 'voiceProfiles')} />,
+          autopilot: (
+            <AutopilotForm voiceProfiles={voiceViews.map(({ id, name, isDefault }) => ({ id, name, isDefault }))} />
+          ),
+          connections: <ConnectionsPanel />,
+          notifications: <NotificationsForm />,
+          account: (
+            <AccountPanel
+              user={userView}
+              joinedAt={profile.createdAt ? new Date(profile.createdAt).toISOString() : null}
+              plan={{
+                id: plan.id,
+                status: plan.status,
+                trialEndsAt: plan.trialEndsAt ? new Date(plan.trialEndsAt).toISOString() : null,
+                currentPeriodEnd: plan.currentPeriodEnd ? new Date(plan.currentPeriodEnd).toISOString() : null,
+              }}
+            />
+          ),
+        }}
+      />
     </AppShell>
   )
 }

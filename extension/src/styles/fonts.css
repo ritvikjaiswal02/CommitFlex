@@ -1,0 +1,20 @@
+/*
+ * Bundled fonts for extension pages (popup, options). Content scripts load
+ * the same files through chrome.runtime.getURL (see content/overlay.ts),
+ * because @font-face inside a shadow root is ignored.
+ */
+@font-face {
+  font-family: 'CommitFlex Sans';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url(fonts/schibsted-grotesk-latin.woff2) format('woff2');
+}
+
+@font-face {
+  font-family: 'CommitFlex Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url(fonts/jetbrains-mono-latin.woff2) format('woff2');
+}

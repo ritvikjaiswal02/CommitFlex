@@ -3,18 +3,15 @@ import { db } from '@/lib/db/client'
 import { users, repos, postDrafts, generationJobs } from '@/lib/db/schema'
 import { getPrefs, hasEmailedFor, logEmail } from '@/lib/db/queries/notifications'
 import { sendEmail } from '@/lib/mailer'
+import { appUrl } from '@/lib/env'
 import { GenerationCompleteEmail } from '@/lib/email/templates/generation-complete'
 
 const KIND = 'generation_complete'
 
-function appOrigin(): string {
-  return process.env.NEXTAUTH_URL ?? process.env.APP_URL ?? 'http://localhost:3000'
-}
-
 /**
- * Sends a "generation complete" email to the user if they have it enabled.
- * Idempotent: if an email already exists for this (jobId, kind) it skips.
- * Never throws — pipeline failures should never block on mail delivery.
+ * Sends a "drafts are ready" email for manual jobs when the user has it on.
+ * Autopilot jobs (autoQueue) skip it: their approval email already covers it.
+ * Idempotent per (job, kind). Never throws — mail must not fail the pipeline.
  */
 export async function notifyJobComplete(jobId: string): Promise<void> {
   try {
@@ -22,6 +19,7 @@ export async function notifyJobComplete(jobId: string): Promise<void> {
 
     const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId)).limit(1)
     if (!job) return
+    if (job.autoQueue) return
 
     const prefs = await getPrefs(job.userId)
     if (!prefs.emailOnComplete) return
@@ -33,13 +31,14 @@ export async function notifyJobComplete(jobId: string): Promise<void> {
     const draftRows = await db.select({ id: postDrafts.id }).from(postDrafts)
       .where(eq(postDrafts.jobId, jobId))
     const draftCount = draftRows.length
+    if (draftCount === 0) return
 
     const firstName = user.name?.split(' ')[0] ?? 'there'
-    const jobUrl = `${appOrigin()}/jobs/${jobId}`
+    const jobUrl = `${appUrl()}/jobs/${jobId}`
 
     const result = await sendEmail({
       to: user.email,
-      subject: `${draftCount} new drafts from ${repo?.fullName ?? 'your repo'}`,
+      subject: `${draftCount} new ${draftCount === 1 ? 'draft' : 'drafts'} from ${repo?.fullName ?? 'your repo'}`,
       react: GenerationCompleteEmail({
         firstName,
         repoName: repo?.fullName ?? 'your repo',
@@ -58,7 +57,6 @@ export async function notifyJobComplete(jobId: string): Promise<void> {
     })
   } catch (err) {
     // Last-ditch: never propagate. Log to stderr so it shows up in serverless logs.
-    // eslint-disable-next-line no-console
     console.error('[notifyJobComplete] failed', err)
   }
 }

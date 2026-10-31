@@ -2,222 +2,214 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #0A0A0A;
-  --foreground: #e5e2e1;
-  --surface-1: #141414;
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.20);
-  /* Palette: one hero accent (violet) + one supporting (cool blue).
-     Warm tones (amber/red) are reserved for status semantics only — never
-     decorative — so the UI stops feeling like a stoplight. */
-  --primary: #d0bcff;
-  --secondary: #adc6ff;
-  --tertiary: #ffb869;
-  --success: #86efac;
-}
+/*
+ * CommitFlex design tokens. Each colour variable holds bare RGB channels so
+ * Tailwind can apply opacity (`rgb(var(--c-accent) / 0.1)`). Light is :root,
+ * dark is .dark (set by next-themes). Hex values are noted for reference.
+ */
+@layer base {
+  :root {
+    color-scheme: light;
 
-html, body {
-  background: var(--background);
-  color: var(--foreground);
-}
+    --c-canvas: 244 245 248;        /* #F4F5F8 */
+    --c-surface: 255 255 255;       /* #FFFFFF */
+    --c-sunken: 236 238 243;        /* #ECEEF3 */
+    --c-line: 221 225 233;          /* #DDE1E9 */
+    --c-line-strong: 196 202 214;   /* #C4CAD6 */
+    --c-fg: 16 19 31;               /* #10131F */
+    --c-fg-muted: 74 80 99;         /* #4A5063 */
+    --c-fg-subtle: 107 114 134;     /* #6B7286 */
+    --c-accent: 43 63 224;          /* #2B3FE0 */
+    --c-accent-hover: 34 51 196;    /* #2233C4 */
+    --c-accent-soft: 233 236 255;   /* #E9ECFF */
+    --c-accent-ink: 31 46 168;      /* #1F2EA8 */
+    --c-accent-fg: 255 255 255;     /* #FFFFFF */
+    --c-marker: 255 240 122;        /* #FFF07A */
+    --c-marker-fg: 61 53 0;         /* #3D3500 */
+    --c-success: 15 123 84;         /* #0F7B54 */
+    --c-success-soft: 227 245 236;  /* #E3F5EC */
+    --c-success-fg: 255 255 255;
+    --c-warning: 161 92 0;          /* #A15C00 */
+    --c-warning-soft: 255 242 219;  /* #FFF2DB */
+    --c-danger: 200 50 60;          /* #C8323C */
+    --c-danger-soft: 253 232 233;   /* #FDE8E9 */
+    --c-danger-fg: 255 255 255;
+    --c-linkedin: 10 102 194;       /* #0A66C2 */
+    --c-x: 16 19 31;                /* #10131F */
+    --c-scrim: 16 19 31;
 
-body {
-  font-family: var(--font-inter), system-ui, sans-serif;
-  font-size: 14px;
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+    --shadow-color: 16 19 31;
+    --shadow-xs: 0 1px 0 rgb(var(--shadow-color) / 0.04);
+    --shadow-sm: 0 1px 2px rgb(var(--shadow-color) / 0.06), 0 1px 1px rgb(var(--shadow-color) / 0.04);
+    --shadow-md: 0 8px 24px -8px rgb(var(--shadow-color) / 0.18), 0 2px 6px rgb(var(--shadow-color) / 0.06);
+    --shadow-lg: 0 24px 48px -16px rgb(var(--shadow-color) / 0.28);
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+    --ease-out: cubic-bezier(0.2, 0, 0, 1);
+    --ease-in: cubic-bezier(0.4, 0, 1, 1);
 
-/* Date inputs */
-input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(0.7);
-  cursor: pointer;
-  opacity: 0.6;
-}
-input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
-
-@layer components {
-  /* Glass card — translucent layer with 1px border, no drop shadow.
-     Depth communicated through luminosity rather than physical shadows. */
-  .glass-card {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-  }
-  .glass-card-hover:hover,
-  .glass-card.interactive:hover {
-    border-color: var(--border-hover);
-    box-shadow: 0 -1px 12px -6px rgba(208, 188, 255, 0.18);
+    --sidebar-width: 248px;
   }
 
-  /* AI focus / "top-lit" cinematic glow on the top edge */
-  .ai-focus {
-    box-shadow: inset 0 1px 0 0 rgba(208, 188, 255, 0.35),
-                0 -1px 24px -8px rgba(208, 188, 255, 0.30);
-    border-color: rgba(208, 188, 255, 0.20) !important;
+  .dark {
+    color-scheme: dark;
+
+    --c-canvas: 14 17 32;           /* #0E1120 */
+    --c-surface: 21 26 44;          /* #151A2C */
+    --c-sunken: 10 13 25;           /* #0A0D19 */
+    --c-line: 38 44 68;             /* #262C44 */
+    --c-line-strong: 57 65 94;      /* #39415E */
+    --c-fg: 237 239 247;            /* #EDEFF7 */
+    --c-fg-muted: 167 174 194;      /* #A7AEC2 */
+    --c-fg-subtle: 125 133 155;     /* #7D859B */
+    --c-accent: 123 135 255;        /* #7B87FF */
+    --c-accent-hover: 149 160 255;  /* #95A0FF */
+    --c-accent-soft: 29 35 82;      /* #1D2352 */
+    --c-accent-ink: 185 192 255;    /* #B9C0FF */
+    --c-accent-fg: 14 17 32;        /* #0E1120 */
+    --c-marker: 79 72 12;           /* #4F480C */
+    --c-marker-fg: 255 243 160;     /* #FFF3A0 */
+    --c-success: 61 214 140;        /* #3DD68C */
+    --c-success-soft: 15 46 34;     /* #0F2E22 */
+    --c-success-fg: 14 17 32;
+    --c-warning: 242 176 74;        /* #F2B04A */
+    --c-warning-soft: 51 38 12;     /* #33260C */
+    --c-danger: 255 107 115;        /* #FF6B73 */
+    --c-danger-soft: 58 21 25;      /* #3A1519 */
+    --c-danger-fg: 14 17 32;
+    --c-linkedin: 76 154 234;       /* #4C9AEA */
+    --c-x: 237 239 247;             /* #EDEFF7 */
+    --c-scrim: 4 6 14;
+
+    /* Shadows in dark mode: pure black at twice the opacity. */
+    --shadow-color: 0 0 0;
+    --shadow-xs: 0 1px 0 rgb(var(--shadow-color) / 0.08);
+    --shadow-sm: 0 1px 2px rgb(var(--shadow-color) / 0.12), 0 1px 1px rgb(var(--shadow-color) / 0.08);
+    --shadow-md: 0 8px 24px -8px rgb(var(--shadow-color) / 0.36), 0 2px 6px rgb(var(--shadow-color) / 0.12);
+    --shadow-lg: 0 24px 48px -16px rgb(var(--shadow-color) / 0.56);
   }
 
-  /* Primary button — solid white, black text. Lifts + halos on hover. */
-  .btn-primary-solid {
-    background: #ffffff;
-    color: #0a0a0a;
-    font-weight: 600;
-    transition: transform 0.18s ease, background 0.15s ease, box-shadow 0.18s ease;
-    will-change: transform, box-shadow;
-  }
-  .btn-primary-solid:hover:not(:disabled) {
-    background: #f4f4f4;
-    transform: translateY(-1px);
-    box-shadow: 0 6px 20px -8px rgba(255, 255, 255, 0.18);
-  }
-  .btn-primary-solid:active:not(:disabled) {
-    transform: translateY(0);
-    box-shadow: 0 2px 8px -2px rgba(255, 255, 255, 0.2);
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
   }
 
-  /* Primary-violet button — for primary-coloured CTAs like "Get Started" */
-  .btn-primary-violet {
-    background: var(--primary);
-    color: #3c0091;
-    font-weight: 700;
-    transition: transform 0.18s ease, background 0.15s ease, box-shadow 0.18s ease;
-  }
-  .btn-primary-violet:hover:not(:disabled) {
-    background: #e0d0ff;
-    transform: translateY(-1px);
-    box-shadow: 0 6px 22px -8px rgba(208, 188, 255, 0.32);
-  }
-  .btn-primary-violet:active:not(:disabled) {
-    transform: translateY(0);
+  body {
+    @apply min-h-screen bg-canvas font-sans text-base text-fg antialiased;
   }
 
-  /* Ghost / secondary button — subtle violet edge on hover */
-  .btn-ghost {
-    background: transparent;
-    color: var(--foreground);
-    border: 1px solid var(--border-subtle);
-    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.18s ease;
-  }
-  .btn-ghost:hover:not(:disabled) {
-    background: rgba(208, 188, 255, 0.05);
-    border-color: rgba(208, 188, 255, 0.35);
-    box-shadow: 0 0 24px -8px rgba(208, 188, 255, 0.25);
+  h1, h2, h3, h4 {
+    @apply font-semibold text-fg;
   }
 
-  /* Chip / tag */
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-family: var(--font-jetbrains-mono), monospace;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+  code, kbd, samp, pre {
+    @apply font-mono;
+    font-feature-settings: normal;
   }
-  .chip-primary   { background: rgba(208,188,255,0.10); color: var(--primary); }
-  .chip-secondary { background: rgba(173,198,255,0.10); color: var(--secondary); }
-  .chip-tertiary  { background: rgba(255,184,105,0.10); color: var(--tertiary); }
-  .chip-success   { background: rgba(134,239,172,0.10); color: var(--success); }
-  .chip-neutral   { background: rgba(255,255,255,0.06); color: #cbc3d7; }
+
+  ::selection {
+    background: rgb(var(--c-marker));
+    color: rgb(var(--c-marker-fg));
+  }
+
+  /* Remove the default focus outline only where focus-ring (or a component
+     style) provides a visible replacement. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::placeholder {
+    color: rgb(var(--c-fg-subtle));
+    opacity: 1;
+  }
+
+  /* Quiet scrollbars that follow the theme. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--c-line-strong)) transparent;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--c-line-strong));
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+
+  input[type='date']::-webkit-calendar-picker-indicator,
+  input[type='time']::-webkit-calendar-picker-indicator,
+  input[type='datetime-local']::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.6;
+  }
+  .dark input[type='date']::-webkit-calendar-picker-indicator,
+  .dark input[type='time']::-webkit-calendar-picker-indicator,
+  .dark input[type='datetime-local']::-webkit-calendar-picker-indicator {
+    filter: invert(0.85);
+  }
 }
 
 @layer utilities {
+  /* Visible keyboard focus for every custom focusable element. */
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas;
+  }
+  /* Same ring, for elements that sit on a surface (cards, popovers, dialogs). */
+  .focus-ring-surface {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface;
+  }
+  /* Ring drawn inside the element, for rows inside bordered lists. */
+  .focus-ring-inset {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent;
+  }
+
+  /* Highlighter behind text that CommitFlex pulled from your commits. */
+  .marker {
+    @apply rounded-sm bg-marker px-0.5 text-marker-fg;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
   .text-balance { text-wrap: balance; }
+  .text-pretty { text-wrap: pretty; }
 
-  .cf-grid-bg {
-    background-image:
-      linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
-    background-size: 52px 52px;
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 
-  /* Subtle dotted lattice for hero/landing backgrounds */
-  .cf-dots-bg {
-    background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
-    background-size: 22px 22px;
-  }
-
-  .cf-glow-primary {
-    background: radial-gradient(ellipse at center, rgba(208,188,255,0.22) 0%, rgba(208,188,255,0.05) 35%, transparent 70%);
-  }
-  .cf-glow-secondary {
-    background: radial-gradient(ellipse at center, rgba(173,198,255,0.18) 0%, transparent 60%);
-  }
-
-  /* Aurora — soft drifting gradient. Two cool tones only (violet + blue) so the
-     hero doesn't feel like a stoplight; warm accents are reserved for status. */
-  .cf-aurora {
-    background:
-      radial-gradient(circle at 22% 24%, rgba(208,188,255,0.14), transparent 44%),
-      radial-gradient(circle at 78% 36%, rgba(173,198,255,0.10), transparent 48%);
-    animation: aurora-drift 20s ease-in-out infinite alternate;
-    filter: blur(72px);
-  }
-
-  /* Horizontal hairline beam that pulses — for section dividers / hero accent */
-  .cf-beam {
+  /* Commit-node rail: a 1px line running behind a column of nodes. */
+  .rail {
     position: relative;
   }
-  .cf-beam::after {
+  .rail::before {
     content: '';
     position: absolute;
-    inset-inline: 20%;
+    top: 0;
     bottom: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(208,188,255,0.6), transparent);
-    animation: beam-pulse 4s ease-in-out infinite;
+    left: var(--rail-x, 7px);
+    width: 1px;
+    background: rgb(var(--c-line-strong));
   }
-
-  .platform-linkedin { border-left: 2px solid #adc6ff; }
-  .platform-twitter  { border-left: 2px solid #d0bcff; }
 }
 
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-.animate-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
-
-@keyframes slide-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.animate-slide-up { animation: slide-up 0.35s ease-out both; }
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-.animate-blink { animation: blink 1s step-end infinite; }
-
-@keyframes aurora-drift {
-  0%   { transform: translate3d(-3%, -2%, 0) scale(1); opacity: 0.85; }
-  50%  { transform: translate3d(2%, 3%, 0) scale(1.08); opacity: 1; }
-  100% { transform: translate3d(-1%, 1%, 0) scale(1.02); opacity: 0.9; }
-}
-
-@keyframes beam-pulse {
-  0%, 100% { opacity: 0.4; }
-  50%      { opacity: 1; }
-}
-
+/*
+ * Reduced motion: no transforms, no loops. Opacity fades stay but are capped
+ * at 120ms.
+ */
 @media (prefers-reduced-motion: reduce) {
-  .cf-aurora,
-  .cf-beam::after,
-  .animate-pulse-dot,
-  .animate-slide-up,
-  .animate-blink {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.12s !important;
+    scroll-behavior: auto !important;
+  }
+  [data-starting-style],
+  [data-ending-style] {
+    transform: none !important;
   }
 }

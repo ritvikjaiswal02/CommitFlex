@@ -1,5 +1,7 @@
 export type PostPlatform = 'linkedin' | 'twitter'
-export type PostStatus = 'generated' | 'edited' | 'copied' | 'archived'
+export type PostStatus = 'generated' | 'edited' | 'copied' | 'archived' | 'published'
+
+export const POST_PLATFORMS: readonly PostPlatform[] = ['linkedin', 'twitter'] as const
 
 export interface PostDraft {
   id: string

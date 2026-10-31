@@ -1,321 +1,192 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import * as React from 'react'
 import { signOut } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { LogOut } from 'lucide-react'
+import { Avatar } from '@/components/ui/avatar'
+import { Button, ButtonLink } from '@/components/ui/button'
+import { Field } from '@/components/ui/field'
+import { FormSection } from '@/components/ui/form-section'
+import { Input } from '@/components/ui/input'
+import { Separator } from '@/components/ui/separator'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { PlanBadge } from '@/components/billing/plan-badge'
+import { daysUntil, formatBillingDate } from '@/components/billing/format'
+import type { PlanId, PlanStatus } from '@/lib/billing/catalog'
+import { readError } from '@/components/onboarding/client'
 
-interface AccountInfo {
-  name: string | null | undefined
-  email: string | null | undefined
-  image?: string | null
-  githubUsername?: string | null
-  joinedAt?: Date | string | null
-}
-
-export function AccountCard({ info }: { info: AccountInfo }) {
-  const [signingOut, setSigningOut] = useState(false)
-
-  const handleSignOut = async () => {
-    setSigningOut(true)
-    await signOut({ callbackUrl: '/' })
+export interface AccountPanelProps {
+  user: { name: string | null; email: string | null; image: string | null }
+  plan: {
+    id: PlanId
+    status: PlanStatus
+    trialEndsAt: string | null
+    currentPeriodEnd: string | null
   }
-
-  const initial = (info.name ?? info.email ?? '?').charAt(0).toUpperCase()
-
-  return (
-    <div className="glass-card rounded-xl p-lg flex flex-col md:flex-row md:items-center gap-lg">
-      {/* Avatar */}
-      <div className="w-16 h-16 rounded-full bg-primary/20 ring-1 ring-primary/30 flex items-center justify-center overflow-hidden shrink-0">
-        {info.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={info.image} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <span className="font-display text-2xl font-bold text-primary">{initial}</span>
-        )}
-      </div>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0 space-y-1">
-        <p className="font-display text-base font-bold text-on-surface truncate">
-          {info.name ?? info.email?.split('@')[0] ?? 'Anonymous'}
-        </p>
-        <p className="font-mono text-code-sm text-on-surface-variant truncate">
-          {info.email ?? 'No email on file'}
-        </p>
-        <div className="flex flex-wrap gap-2 pt-1">
-          <span className="chip chip-secondary normal-case">
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-            GitHub Connected
-          </span>
-          {info.githubUsername && (
-            <span className="font-mono text-code-sm text-on-surface-variant">
-              @{info.githubUsername}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Sign out */}
-      <button
-        onClick={handleSignOut}
-        disabled={signingOut}
-        className="btn-ghost h-10 px-4 rounded-xl font-mono text-label-caps uppercase tracking-widest text-on-surface-variant hover:text-on-surface disabled:opacity-50 inline-flex items-center gap-2"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>
-        </svg>
-        {signingOut ? 'Signing out...' : 'Sign out'}
-      </button>
-    </div>
-  )
+  joinedAt: string | null
 }
 
-interface PrefsState {
-  emailOnComplete: boolean
-  weeklyDigest: boolean
-  productUpdates: boolean
-}
+const CONFIRM_WORD = 'DELETE'
 
-export function NotificationsCard() {
-  const [prefs, setPrefs] = useState<PrefsState | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/notifications')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (cancelled) return
-        if (data?.prefs) {
-          setPrefs({
-            emailOnComplete: !!data.prefs.emailOnComplete,
-            weeklyDigest: !!data.prefs.weeklyDigest,
-            productUpdates: !!data.prefs.productUpdates,
-          })
-        } else {
-          setPrefs({ emailOnComplete: true, weeklyDigest: false, productUpdates: false })
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setPrefs({ emailOnComplete: true, weeklyDigest: false, productUpdates: false })
-      })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [])
-
-  const persist = async (next: PrefsState) => {
-    setSaveState('saving')
-    try {
-      const res = await fetch('/api/notifications', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      })
-      if (!res.ok) throw new Error()
-      setSaveState('saved')
-      setTimeout(() => setSaveState(s => (s === 'saved' ? 'idle' : s)), 1500)
-    } catch {
-      setSaveState('error')
-    }
+function planLine(plan: AccountPanelProps['plan']): string {
+  if (plan.status === 'trialing') {
+    const days = daysUntil(plan.trialEndsAt)
+    if (days === null) return 'Your Pro trial is running.'
+    return days <= 0 ? 'Your Pro trial ends today.' : `Your Pro trial ends in ${days} ${days === 1 ? 'day' : 'days'}.`
   }
-
-  const toggle = (k: keyof PrefsState) => {
-    if (!prefs) return
-    const next = { ...prefs, [k]: !prefs[k] }
-    setPrefs(next)
-    void persist(next)
+  if (plan.status === 'cancelling') {
+    const end = formatBillingDate(plan.currentPeriodEnd)
+    return end ? `Cancelled. Access continues until ${end}.` : 'Cancelled at the end of this period.'
   }
-
-  const rows: { key: keyof PrefsState; title: string; desc: string }[] = [
-    { key: 'emailOnComplete', title: 'Generation completed', desc: 'Email me when a job finishes.' },
-    { key: 'weeklyDigest',    title: 'Weekly digest',        desc: 'Roundup of last week’s drafts every Monday.' },
-    { key: 'productUpdates',  title: 'Product updates',      desc: 'Occasional news about new features.' },
-  ]
-
-  return (
-    <div className="glass-card rounded-xl p-lg space-y-md">
-      {loading || !prefs ? (
-        <p className="font-mono text-code-sm text-outline-variant py-2">Loading preferences…</p>
-      ) : (
-        rows.map(r => (
-          <label key={r.key} className="flex items-center justify-between gap-md cursor-pointer">
-            <div>
-              <p className="text-sm text-on-surface">{r.title}</p>
-              <p className="font-mono text-code-sm text-on-surface-variant mt-0.5">{r.desc}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => toggle(r.key)}
-              aria-pressed={prefs[r.key]}
-              className={`relative h-6 w-11 rounded-full transition-colors shrink-0 ${
-                prefs[r.key] ? 'bg-primary' : 'bg-white/10'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                  prefs[r.key] ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </label>
-        ))
-      )}
-      <p className="font-mono text-code-sm text-outline-variant pt-2 border-t border-white/8 flex items-center justify-between">
-        <span>Changes save automatically.</span>
-        <span className={
-          saveState === 'saving' ? 'text-on-surface-variant' :
-          saveState === 'saved'  ? 'text-tertiary' :
-          saveState === 'error'  ? 'text-error' : 'text-outline-variant'
-        }>
-          {saveState === 'saving' ? 'Saving…' :
-           saveState === 'saved'  ? 'Saved' :
-           saveState === 'error'  ? 'Save failed' : ''}
-        </span>
-      </p>
-    </div>
-  )
+  if (plan.status === 'past_due') return 'Your last payment failed. Razorpay will retry; update your payment method in Billing.'
+  if (plan.id === 'free') return 'One repo and a weekly digest. Upgrade for ship moments and direct LinkedIn publishing.'
+  const renews = formatBillingDate(plan.currentPeriodEnd)
+  return renews ? `Renews on ${renews}.` : 'Your subscription is active.'
 }
 
-export function PlanCard({ plan = 'Community', usage }: { plan?: string; usage?: { generations: number; limit: number } }) {
-  const u = usage ?? { generations: 0, limit: 5 }
-  const pct = Math.min(100, (u.generations / u.limit) * 100)
-  const isPro = plan.toLowerCase() === 'pro'
+export function AccountPanel({ user, plan, joinedAt }: AccountPanelProps) {
+  const [signingOut, setSigningOut] = React.useState(false)
+  const [open, setOpen] = React.useState(false)
+  const [confirm, setConfirm] = React.useState('')
+  const [deleting, setDeleting] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const hasPaidPlan = plan.id !== 'free' && plan.status !== 'trialing'
 
-  return (
-    <div className={`relative glass-card rounded-xl p-lg overflow-hidden ${isPro ? 'bg-gradient-to-br from-primary/10 to-transparent border-primary/30' : ''}`}>
-      <div className="flex items-start justify-between gap-md">
-        <div>
-          <p className="font-mono text-label-caps uppercase tracking-widest text-on-surface-variant">Current Plan</p>
-          <p className="font-display text-headline-md font-bold tracking-tighter text-on-surface mt-1">
-            {plan}
-          </p>
-          {!isPro && (
-            <p className="text-code-sm text-on-surface-variant mt-1">
-              Free forever for hobbyists. Upgrade for unlimited.
-            </p>
-          )}
-        </div>
-        {!isPro && (
-          <button className="bg-primary text-on-primary font-bold rounded-md px-4 py-2 text-xs hover:bg-primary-container transition-colors shrink-0">
-            Upgrade to Pro
-          </button>
-        )}
-      </div>
-
-      <div className="mt-md pt-md border-t border-white/8">
-        <div className="flex justify-between font-mono text-code-sm mb-1">
-          <span className="text-on-surface-variant">Generations this month</span>
-          <span className="text-on-surface">{u.generations} / {isPro ? '∞' : u.limit}</span>
-        </div>
-        {!isPro && (
-          <div className="h-1.5 rounded-full bg-white/8 overflow-hidden">
-            <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-export function ApiKeysCard() {
-  return (
-    <div className="glass-card rounded-xl p-lg space-y-md">
-      <div className="flex items-center justify-between gap-md">
-        <div>
-          <p className="text-sm text-on-surface">Personal API key</p>
-          <p className="font-mono text-code-sm text-on-surface-variant mt-0.5">
-            Programmatic access to your generations.
-          </p>
-        </div>
-        <button
-          disabled
-          className="btn-ghost h-9 px-3 rounded-md font-mono text-label-caps uppercase opacity-50 cursor-not-allowed"
-        >
-          Generate Key
-        </button>
-      </div>
-      <div className="rounded-md border border-white/8 p-sm font-mono text-code-sm text-outline-variant">
-        cf_•••• •••• •••• •••• <span className="text-primary/60">(available on Pro)</span>
-      </div>
-    </div>
-  )
-}
-
-export function DangerZoneCard() {
-  const router = useRouter()
-  const [confirming, setConfirming] = useState(false)
-  const [confirmText, setConfirmText] = useState('')
-  const [deleting, setDeleting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const handleDelete = async () => {
+  const onDelete = async () => {
+    if (confirm !== CONFIRM_WORD) return
     setDeleting(true)
     setError(null)
     try {
       const res = await fetch('/api/user', { method: 'DELETE' })
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error ?? 'Failed to delete account')
+        setError(await readError(res, 'Your account wasn’t deleted. Try again.'))
+        setDeleting(false)
+        return
       }
-      // Also clear client-side session and redirect
       await signOut({ callbackUrl: '/' })
-      router.refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
+    } catch {
+      setError('Your account wasn’t deleted. Check your connection and try again.')
       setDeleting(false)
     }
   }
 
   return (
-    <div className="rounded-xl border border-error/30 bg-error/5 p-lg space-y-md">
-      <div className="flex items-start justify-between gap-md">
-        <div>
-          <p className="text-sm text-on-surface font-bold">Delete account</p>
-          <p className="font-mono text-code-sm text-on-surface-variant mt-0.5">
-            Permanently remove your account, repos, jobs and drafts. This cannot be undone.
-          </p>
-        </div>
-        {!confirming && (
-          <button
-            onClick={() => setConfirming(true)}
-            className="btn-ghost h-9 px-3 rounded-md font-mono text-label-caps uppercase text-error border-error/40 hover:bg-error/10"
-          >
-            Delete account
-          </button>
-        )}
-      </div>
-
-      {confirming && (
-        <div className="space-y-sm pt-sm border-t border-error/20">
-          <p className="font-mono text-code-sm text-on-surface">
-            Type <span className="text-error font-bold">DELETE</span> to confirm.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              value={confirmText}
-              onChange={e => setConfirmText(e.target.value)}
-              placeholder="DELETE"
-              className="flex-1 rounded-md bg-transparent border border-error/30 px-md py-sm text-sm font-mono text-on-surface placeholder:text-outline-variant focus:outline-none focus:border-error/60"
-            />
-            <button
-              onClick={handleDelete}
-              disabled={confirmText !== 'DELETE' || deleting}
-              className="h-10 px-4 rounded-md font-mono text-label-caps uppercase bg-error/20 text-error border border-error/40 hover:bg-error/30 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {deleting ? 'Deleting...' : 'Confirm delete'}
-            </button>
-            <button
-              onClick={() => { setConfirming(false); setConfirmText('') }}
-              disabled={deleting}
-              className="h-10 px-4 rounded-md font-mono text-label-caps uppercase text-on-surface-variant hover:text-on-surface"
-            >
-              Cancel
-            </button>
+    <div>
+      <FormSection title="Signed in" description="CommitFlex uses your GitHub account to sign in.">
+        <div className="flex max-w-xl flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <Avatar src={user.image} name={user.name ?? user.email} size="lg" />
+            <div className="min-w-0">
+              <p className="truncate text-base font-medium text-fg">{user.name ?? 'GitHub user'}</p>
+              <p className="truncate text-sm text-fg-muted">
+                {user.email ?? 'No public email on GitHub'}
+                {joinedAt && <span className="text-fg-subtle"> since {formatBillingDate(joinedAt)}</span>}
+              </p>
+            </div>
           </div>
-          {error && <p className="font-mono text-code-sm text-error">{error}</p>}
+          <Button
+            variant="secondary"
+            loading={signingOut}
+            onClick={() => {
+              setSigningOut(true)
+              void signOut({ callbackUrl: '/' })
+            }}
+          >
+            {!signingOut && <LogOut className="size-4" strokeWidth={1.75} aria-hidden="true" />}
+            Sign out
+          </Button>
         </div>
-      )}
+      </FormSection>
+      <Separator />
+
+      <FormSection title="Plan" description="Invoices, payment method and cancellation live in Billing.">
+        <div className="flex max-w-xl flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <PlanBadge plan={plan.id} status={plan.status} size="md" className="self-start" />
+            <p className="text-sm text-fg-muted">{planLine(plan)}</p>
+          </div>
+          <ButtonLink href="/billing" variant={plan.id === 'free' || plan.status === 'trialing' ? 'primary' : 'secondary'}>
+            {plan.id === 'free' || plan.status === 'trialing' ? 'Upgrade' : 'Manage billing'}
+          </ButtonLink>
+        </div>
+      </FormSection>
+      <Separator />
+
+      <FormSection
+        title="Delete account"
+        description="Removes your account, connected repos, drafts, queue and voice profiles. This can’t be undone."
+      >
+        <div className="flex max-w-xl flex-col gap-4 rounded-lg border border-danger/30 bg-danger-soft/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-fg-muted">
+            {hasPaidPlan
+              ? 'Your subscription is cancelled immediately and won’t renew. Webhooks on your repos stop working.'
+              : 'Webhooks on your repos stop working. Posts already published stay on LinkedIn and X.'}
+          </p>
+          <Button variant="danger" onClick={() => setOpen(true)} className="shrink-0">
+            Delete account
+          </Button>
+        </div>
+      </FormSection>
+
+      <AlertDialog
+        open={open}
+        onOpenChange={(next) => {
+          if (deleting) return
+          setOpen(next)
+          if (!next) {
+            setConfirm('')
+            setError(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void onDelete()
+            }}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete your CommitFlex account?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Everything is removed right away: repos, drafts, the queue, voice profiles and extension tokens.
+                {hasPaidPlan && ' Your subscription is cancelled and won’t be charged again.'}
+              </AlertDialogDescription>
+              <Field label={`Type ${CONFIRM_WORD} to confirm`} error={error} className="mt-4">
+                <Input
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  placeholder={CONFIRM_WORD}
+                />
+              </Field>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Keep my account</AlertDialogCancel>
+              <AlertDialogAction
+                type="submit"
+                variant="danger"
+                closeOnClick={false}
+                loading={deleting}
+                disabled={confirm !== CONFIRM_WORD}
+              >
+                Delete account
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </form>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

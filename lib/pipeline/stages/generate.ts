@@ -13,11 +13,16 @@ export interface GenerateStageResult {
   errors: { linkedin?: string; twitter?: string }
 }
 
-export async function stageGenerate(job: GenerationJob, narrative: Narrative, voice: VoiceSettings): Promise<GenerateStageResult> {
+export async function stageGenerate(
+  job: GenerationJob,
+  narrative: Narrative,
+  voice: VoiceSettings,
+  opts: { authorContext?: string | null } = {},
+): Promise<GenerateStageResult> {
   await updateJobStatus(job.id, 'generating_posts')
   await emitEvent(job.id, 'stage_started', { stage: 'generate' })
 
-  const { linkedin, twitter, errors } = await generatePosts(narrative, voice)
+  const { linkedin, twitter, errors } = await generatePosts(narrative, voice, { authorContext: opts.authorContext })
 
   const drafts: Array<{ platform: 'linkedin' | 'twitter'; content: string; hashtags: string[]; callToAction?: string }> = []
   if (linkedin) {
@@ -27,6 +32,10 @@ export async function stageGenerate(job: GenerationJob, narrative: Narrative, vo
   if (twitter) {
     drafts.push({ platform: 'twitter', content: twitter.post.content, hashtags: twitter.post.hashtags })
     await persistAILog({ jobId: job.id, stage: 'generate_twitter', promptTokens: twitter._meta.promptTokens, completionTokens: twitter._meta.completionTokens, promptVersion: twitter._meta.promptVersion })
+  }
+
+  if (drafts.length === 0) {
+    throw new Error(`Both posts failed to generate: ${errors.linkedin ?? 'unknown'} / ${errors.twitter ?? 'unknown'}`)
   }
 
   const persistedDrafts = await persistDrafts(job.id, job.userId, drafts)

@@ -2,16 +2,18 @@ import { auth } from '@/auth'
 import { requireJobOwner, ownershipErrorToResponse } from '@/lib/auth/require-owner'
 import { getJob } from '@/lib/db/queries/jobs'
 import { getDraftsByJob } from '@/lib/db/queries/drafts'
+import { listQueue } from '@/lib/db/queries/autopilot'
 
 const TERMINAL_STATUSES = new Set(['completed', 'partial_completed', 'failed', 'cancelled'])
 const POLL_INTERVAL_MS = 2000
 
 export async function GET(_req: Request, { params }: { params: { jobId: string } }) {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session?.user?.id) return Response.json({ error: 'Unauthorized', code: 'unauthorized' }, { status: 401 })
+  const userId = session.user.id
 
   try {
-    await requireJobOwner(params.jobId, session.user.id)
+    await requireJobOwner(params.jobId, userId)
   } catch (err) {
     const res = ownershipErrorToResponse(err)
     if (res) return res
@@ -36,8 +38,11 @@ export async function GET(_req: Request, { params }: { params: { jobId: string }
 
         if (job.status !== lastStatus) {
           lastStatus = job.status
-          const drafts = TERMINAL_STATUSES.has(job.status) ? await getDraftsByJob(params.jobId) : []
-          send('update', { status: job.status, drafts })
+          const terminal = TERMINAL_STATUSES.has(job.status)
+          const drafts = terminal ? await getDraftsByJob(params.jobId) : []
+          // Autopilot jobs queue their drafts right after completing.
+          const queue = terminal ? await listQueue(userId, { jobId: params.jobId, limit: 50 }).catch(() => []) : []
+          send('update', { status: job.status, drafts, queue, errorMessage: job.errorMessage ?? null })
         }
 
         if (TERMINAL_STATUSES.has(job.status)) break

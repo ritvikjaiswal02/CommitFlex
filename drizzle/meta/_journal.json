@@ -43,6 +43,20 @@
       "when": 1778925937623,
       "tag": "0005_known_night_thrasher",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793479746067,
+      "tag": "0006_autopilot_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793487722742,
+      "tag": "0007_hardening_autopilot",
+      "breakpoints": true
     }
   ]
 }

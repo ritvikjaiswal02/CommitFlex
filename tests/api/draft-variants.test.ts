@@ -19,12 +19,28 @@ vi.mock('@/lib/auth/require-owner', () => ({
   ownershipErrorToResponse: vi.fn().mockReturnValue(null),
 }))
 vi.mock('@/lib/db/queries/narratives', () => ({ getNarrativeByJob: vi.fn() }))
-vi.mock('@/lib/db/queries/voice', () => ({ getVoiceSettings: vi.fn() }))
+vi.mock('@/lib/db/queries/voice', () => ({ getVoiceSettings: vi.fn(), getVoiceProfile: vi.fn().mockResolvedValue(null) }))
+vi.mock('@/lib/db/queries/onboarding', () => ({
+  getUserProfile: vi.fn().mockResolvedValue(null),
+  buildAuthorContext: vi.fn().mockReturnValue(''),
+}))
+vi.mock('@/lib/db/queries/jobs', () => ({ getJob: vi.fn().mockResolvedValue(null) }))
+vi.mock('@/lib/plans', () => ({
+  assertFeature: vi.fn().mockResolvedValue({ id: 'pro' }),
+  assertWithinLimit: vi.fn().mockResolvedValue({ used: 0, max: 150 }),
+  reserveUsage: vi.fn().mockResolvedValue({ plan: { id: 'pro' }, count: 1, period: '2026-11' }),
+  refundUsage: vi.fn().mockResolvedValue(undefined),
+  planErrorToResponse: vi.fn().mockReturnValue(null),
+}))
+
 vi.mock('@/lib/ai/posts', () => ({
   generatePost: vi.fn(),
   creativityToTemperature: vi.fn((c: number) => 0.3 + (c / 100) * 0.7),
 }))
-vi.mock('@/lib/rate-limit', () => ({ checkRateLimit: vi.fn() }))
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: vi.fn(),
+  rateLimitResponse: vi.fn(() => Response.json({ error: 'Too many requests', code: 'rate_limited' }, { status: 429 })),
+}))
 
 const DRAFT_ID = 'draft-uuid-abcd'
 const existingDraft = { id: DRAFT_ID, userId: 'user-1', jobId: 'job-uuid-1234', platform: 'linkedin' }
@@ -45,7 +61,7 @@ function makeRequest(body: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(checkRateLimit).mockReturnValue({ allowed: true, remaining: 9, resetAt: Date.now() + 60_000 } as any)
+  vi.mocked(checkRateLimit).mockResolvedValue({ allowed: true, remaining: 9, resetAt: Date.now() + 60_000 } as any)
   vi.mocked(ownershipErrorToResponse).mockReturnValue(null)
   vi.mocked(requireDraftOwner).mockResolvedValue(existingDraft as any)
   vi.mocked(getNarrativeByJob).mockResolvedValue(narrativeRow as any)
@@ -70,7 +86,7 @@ describe('POST /api/drafts/[draftId]/variants', () => {
 
   it('returns 429 when rate-limited', async () => {
     vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
-    vi.mocked(checkRateLimit).mockReturnValue({ allowed: false, remaining: 0, resetAt: Date.now() + 60_000 } as any)
+    vi.mocked(checkRateLimit).mockResolvedValue({ allowed: false, remaining: 0, resetAt: Date.now() + 60_000 } as any)
     const res = await POST(makeRequest({}), makeParams())
     expect(res.status).toBe(429)
   })

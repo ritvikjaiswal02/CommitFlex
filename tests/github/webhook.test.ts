@@ -71,7 +71,7 @@ describe('splitFullName', () => {
 })
 
 describe('installRepoWebhook', () => {
-  it('calls octokit.repos.createWebhook with push event + secret', async () => {
+  it('calls octokit.repos.createWebhook with push, pull_request and release events + secret', async () => {
     const createWebhook = vi.fn().mockResolvedValue({ data: { id: 42 } })
     const octokit = { repos: { createWebhook } } as any
     const id = await installRepoWebhook({
@@ -82,7 +82,7 @@ describe('installRepoWebhook', () => {
     expect(createWebhook).toHaveBeenCalledWith(expect.objectContaining({
       owner: 'octo',
       repo: 'world',
-      events: ['push'],
+      events: ['push', 'pull_request', 'release'],
       active: true,
       config: expect.objectContaining({
         url: 'https://example.com/hook',
