@@ -207,10 +207,10 @@ pnpm dev                        # http://localhost:3000
 
 | Path | Schedule | Does |
 |---|---|---|
-| `/api/cron/publish` | every 10 minutes (`*/10 * * * *`) | Publishes due posts, retries, hands off X posts |
-| `/api/cron/autopilot` | hourly (`0 * * * *`) | Monday digests, cadence fill, review reminders, trial emails, LinkedIn expiry, lapsed plans |
+| `/api/cron/publish` | daily 03:30 UTC | Publishes due posts, retries, hands off X posts |
+| `/api/cron/autopilot` | daily 03:00 UTC | Monday digests, cadence fill, review reminders, trial emails, LinkedIn expiry, lapsed plans |
 
-Both require `Authorization: Bearer $CRON_SECRET`; Vercel Cron sends it automatically. **Sub-daily schedules need Vercel Pro.** On the Hobby plan, call both URLs from an external scheduler (Upstash QStash schedules or cron-job.org) with that header. Both jobs are idempotent, so running them more often is safe.
+Vercel Hobby only allows daily crons, so `.github/workflows/cron.yml` calls both endpoints every 10 minutes. Add two repository secrets for it (Settings → Secrets and variables → Actions): `APP_URL` (for example `https://commit-flex.vercel.app`) and `CRON_SECRET` (the same value as in Vercel). Both endpoints require `Authorization: Bearer $CRON_SECRET` and are idempotent, so running them more often is safe. On Vercel Pro you can move the schedules back into `vercel.json` instead.
 
 ### Razorpay
 
