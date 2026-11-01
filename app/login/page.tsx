@@ -1,101 +1,170 @@
-'use client'
+import type { Metadata } from 'next'
+import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { auth } from '@/auth'
+import { Logo } from '@/components/brand/logo'
+import { PlatformBadge } from '@/components/brand/platform'
+import { Callout } from '@/components/ui/callout'
+import { StatusNode } from '@/components/ui/status-node'
+import { Timeline, TimelineItem } from '@/components/ui/timeline'
+import { SignInButton } from './sign-in-button'
 
-import { signIn } from 'next-auth/react'
-import { useState } from 'react'
-
-function GitHubIcon() {
-  return (
-    <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 24 24">
-      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-    </svg>
-  )
+export const metadata: Metadata = {
+  title: 'Sign in',
+  description: 'Sign in with GitHub to turn what you ship into LinkedIn and X posts in your own voice.',
 }
 
-const COMMITS = [
-  { hash: 'a3f2c1d', color: '#86efac', message: 'feat: add GitHub OAuth + session handling' },
-  { hash: 'b7e8a2f', color: '#ffb869', message: 'fix: rate limiting on commit fetch endpoint' },
-  { hash: 'c4d1e9a', color: '#d0bcff', message: 'refactor: extract pipeline into stages' },
-  { hash: 'f2a8b3c', color: '#adc6ff', message: 'feat: real-time streaming via SSE' },
+export const dynamic = 'force-dynamic'
+
+interface PageProps {
+  searchParams?: { next?: string; callbackUrl?: string; error?: string }
+}
+
+/** Only same-origin paths; never protocol-relative or absolute URLs. */
+function safeNext(value: string | undefined): string | null {
+  if (!value) return null
+  if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return null
+  if (value.startsWith('/login') || value.startsWith('/api/')) return null
+  return value
+}
+
+function errorCopy(code: string | undefined): { title: string; body: string } | null {
+  if (!code) return null
+  switch (code) {
+    case 'AccessDenied':
+      return {
+        title: 'GitHub sign-in was cancelled',
+        body: 'Nothing was connected. Continue with GitHub when you’re ready.',
+      }
+    case 'Configuration':
+      // The operator hint goes to the server log, never to the person signing in.
+      console.error('[login] Auth.js Configuration error: check GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET and AUTH_SECRET.')
+      return {
+        title: 'Sign-in is temporarily unavailable',
+        body: 'GitHub sign-in isn’t working on our side right now. Try again in a few minutes.',
+      }
+    case 'OAuthAccountNotLinked':
+      return {
+        title: 'That email is already linked to another sign-in',
+        body: 'Sign in with the GitHub account you used the first time.',
+      }
+    default:
+      return {
+        title: 'GitHub sign-in didn’t finish',
+        body: 'GitHub didn’t confirm the sign-in. Try again; if it keeps failing, sign out of GitHub and back in.',
+      }
+  }
+}
+
+const NEXT_STEPS = [
+  { title: 'Pick the repos to watch', body: 'We add a webhook so merged pull requests and releases reach us.' },
+  { title: 'Answer five questions', body: 'Who you are, who you write for, where and how often to post.' },
+  { title: 'Approve drafts from your inbox', body: 'Each draft arrives with an Approve button. LinkedIn posts go out on schedule.' },
 ]
 
-export default function LoginPage() {
-  const [loading, setLoading] = useState(false)
+export default async function LoginPage({ searchParams }: PageProps) {
+  const next = safeNext(searchParams?.next) ?? safeNext(searchParams?.callbackUrl)
+  const session = await auth()
+  if (session?.user?.id) redirect(next ?? '/dashboard')
 
-  const handleSignIn = async () => {
-    setLoading(true)
-    await signIn('github', { callbackUrl: '/dashboard' })
-  }
+  const error = errorCopy(searchParams?.error)
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden cf-grid-bg bg-background">
-      {/* Drifting aurora — adds depth without movement */}
-      <div className="absolute inset-0 cf-aurora pointer-events-none" />
-      {/* Concentrated glow behind the logo */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none w-[720px] h-[480px] cf-glow-primary" />
+    <div className="grid min-h-dvh bg-canvas lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="flex flex-col px-4 py-6 sm:px-10 lg:px-16 lg:py-10">
+        <Logo href="/" />
 
-      <div className="relative z-10 w-full max-w-[440px] px-5 animate-slide-up">
-        {/* Logo */}
-        <div className="text-center mb-xl">
-          <div className="inline-flex items-center gap-2 chip chip-primary mb-5">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />
-            ship in public · post with signal
-          </div>
-          <h1 className="font-display text-[50px] font-bold tracking-[-0.04em] leading-none mb-3 text-on-surface">
-            Commit<span className="text-primary">Flex</span>
-          </h1>
-          <p className="text-on-surface-variant leading-relaxed">
-            GitHub commits → authentic social posts<br />in your voice, automatically.
-          </p>
-        </div>
-
-        {/* Terminal commit preview */}
-        <div className="glass-card rounded-xl mb-7 overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/8">
-            <div className="flex gap-1.5">
-              {['#ffb4ab', '#ffb869', '#86efac'].map(c => (
-                <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />
-              ))}
+        <main className="flex flex-1 flex-col justify-center py-12">
+          <div className="flex w-full max-w-[400px] flex-col gap-8">
+            <div className="flex flex-col gap-3">
+              <h1 className="text-2xl font-semibold text-fg text-balance sm:text-3xl">
+                Sign in with GitHub to get started
+              </h1>
+              <p className="text-base text-fg-muted text-pretty">
+                CommitFlex reads commit messages, pull request titles and release notes from the repos you choose. It
+                never reads or stores your source code.
+              </p>
             </div>
-            <span className="font-mono text-code-sm ml-2 text-outline-variant">
-              git log --oneline
-            </span>
-          </div>
-          <div className="p-3 space-y-0.5">
-            {COMMITS.map((c) => (
-              <div
-                key={c.hash}
-                className="flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors hover:bg-white/[0.03]"
-              >
-                <span className="font-mono text-code-sm shrink-0 w-14" style={{ color: c.color }}>
-                  {c.hash}
-                </span>
-                <span className="font-mono text-code-sm truncate text-on-surface-variant">
-                  {c.message}
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center gap-2 px-4 py-3 border-t border-white/8 font-mono text-code-sm text-primary">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot shrink-0" />
-            generating 2 posts from this week
-            <span className="animate-blink ml-0.5">▋</span>
-          </div>
-        </div>
 
-        {/* CTA */}
-        <button
-          onClick={handleSignIn}
-          disabled={loading}
-          className="btn-primary-solid w-full h-12 rounded-xl text-sm flex items-center justify-center gap-2.5 disabled:opacity-60"
-        >
-          <GitHubIcon />
-          {loading ? 'Connecting to GitHub...' : 'Continue with GitHub'}
-        </button>
+            {error && (
+              <Callout tone={searchParams?.error === 'AccessDenied' ? 'info' : 'danger'} title={error.title}>
+                {error.body}
+              </Callout>
+            )}
 
-        <p className="text-center font-mono text-code-sm mt-md text-outline-variant">
-          Read-only access · No writes to your repos
-        </p>
+            <div className="flex flex-col gap-4">
+              <SignInButton callbackUrl={next ?? '/dashboard'} />
+              <p className="text-sm text-fg-muted text-pretty">
+                We ask for repository access so we can read private repos you select and add a webhook that tells us
+                when you ship. You can disconnect any repo at any time.
+              </p>
+            </div>
+          </div>
+        </main>
+
+        <footer className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-fg-subtle">
+          <Link href="/pricing" className="rounded-sm hover:text-fg focus-ring">
+            Pricing
+          </Link>
+          <Link href="/terms" className="rounded-sm hover:text-fg focus-ring">
+            Terms
+          </Link>
+          <Link href="/privacy" className="rounded-sm hover:text-fg focus-ring">
+            Privacy
+          </Link>
+        </footer>
       </div>
+
+      <aside
+        aria-label="What happens after you sign in"
+        className="hidden border-l border-line bg-surface lg:flex lg:flex-col lg:justify-center lg:px-16 lg:py-10"
+      >
+        <div className="flex max-w-[480px] flex-col gap-10">
+          <section className="flex flex-col gap-5">
+            <h2 className="text-lg font-semibold text-fg">What happens next</h2>
+            <ol className="flex flex-col gap-4">
+              {NEXT_STEPS.map((step, i) => (
+                <li key={step.title} className="flex gap-4">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-line-strong text-xs font-medium text-fg-muted tabular-nums">
+                    {i + 1}
+                  </span>
+                  <div className="flex flex-col gap-0.5">
+                    <p className="text-sm font-medium text-fg">{step.title}</p>
+                    <p className="text-sm text-fg-muted">{step.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+
+          <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-5 shadow-xs">
+            <p className="text-xs text-fg-muted">An example from the CommitFlex repository</p>
+            <Timeline>
+              <TimelineItem node={<StatusNode state="draft" label="Commit" />}>
+                <p className="text-sm text-fg-muted">Merged to main</p>
+                <p className="mt-1 font-mono text-sm text-fg">
+                  <span className="text-fg-subtle">ec2a23c</span>{' '}
+                  <span className="marker">generate from PR or release tag</span>
+                </p>
+              </TimelineItem>
+              <TimelineItem node={<StatusNode state="pending_review" />}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-fg">Draft written</p>
+                  <PlatformBadge platform="linkedin" />
+                </div>
+                <p className="mt-2 text-sm leading-6 text-fg-muted">
+                  You can now point CommitFlex at a single pull request or a release tag instead of a date range. One
+                  release, one post, written from what actually changed.
+                </p>
+              </TimelineItem>
+              <TimelineItem node={<StatusNode state="scheduled" />}>
+                <p className="text-sm font-medium text-fg">Approved from email</p>
+                <p className="text-sm text-fg-muted">Scheduled for Tue, 9:00</p>
+              </TimelineItem>
+            </Timeline>
+          </section>
+        </div>
+      </aside>
     </div>
   )
 }

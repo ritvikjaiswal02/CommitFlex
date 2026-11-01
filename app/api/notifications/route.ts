@@ -1,27 +1,33 @@
 import { z } from 'zod'
 import { auth } from '@/auth'
 import { getPrefs, upsertPrefs } from '@/lib/db/queries/notifications'
+import { invalidRequest, readJson, unauthorized } from '@/lib/validators/http'
 
-const PrefsSchema = z.object({
-  emailOnComplete: z.boolean().optional(),
-  weeklyDigest: z.boolean().optional(),
-  productUpdates: z.boolean().optional(),
-})
+const PrefsSchema = z
+  .object({
+    emailOnComplete: z.boolean(),
+    weeklyDigest: z.boolean(),
+    productUpdates: z.boolean(),
+    approvalRequests: z.boolean(),
+    readyToPost: z.boolean(),
+    publishReceipts: z.boolean(),
+  })
+  .partial()
+  .strict()
 
 export async function GET() {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session?.user?.id) return unauthorized()
   const prefs = await getPrefs(session.user.id)
   return Response.json({ prefs })
 }
 
 export async function PUT(req: Request) {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session?.user?.id) return unauthorized()
 
-  const body = await req.json().catch(() => null)
-  const parsed = PrefsSchema.safeParse(body)
-  if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 })
+  const parsed = PrefsSchema.safeParse(await readJson(req))
+  if (!parsed.success) return invalidRequest(parsed.error)
 
   const prefs = await upsertPrefs(session.user.id, parsed.data)
   return Response.json({ prefs })

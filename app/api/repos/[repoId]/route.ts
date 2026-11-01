@@ -1,31 +1,40 @@
-import { eq, and } from 'drizzle-orm'
 import { z } from 'zod'
 import { auth } from '@/auth'
-import { db } from '@/lib/db/client'
-import { accounts } from '@/lib/db/schema'
-import { getRepo, softDeleteRepo, updateRepoWebhook } from '@/lib/db/queries/repos'
+import { countAutopilotRepos, getRepo, softDeleteRepo, toClientRepo, updateRepoSettings } from '@/lib/db/queries/repos'
+import { getGithubAccessToken } from '@/lib/db/queries/integrations'
 import { requireRepoOwner, ownershipErrorToResponse } from '@/lib/auth/require-owner'
 import { createOctokit } from '@/lib/github/client'
 import { removeRepoWebhook, splitFullName } from '@/lib/github/webhook'
+import { PlanError, getUserPlan, limitFor, limitReachedBody, planErrorToResponse } from '@/lib/plans'
+import { invalidRequest, readJson, unauthorized } from '@/lib/validators/http'
 
-const PatchSchema = z.object({
-  autoGenerate: z.boolean().optional(),
-})
+const PatchSchema = z
+  .object({
+    autoGenerate: z.boolean().optional(),
+    autopilotEnabled: z.boolean().optional(),
+  })
+  .strict()
 
 export async function PATCH(req: Request, { params }: { params: { repoId: string } }) {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = session?.user?.id
+  if (!userId) return unauthorized()
 
   try {
-    await requireRepoOwner(params.repoId, session.user.id)
-    const body = await req.json().catch(() => null)
-    const parsed = PatchSchema.safeParse(body)
-    if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 })
+    const repo = await requireRepoOwner(params.repoId, userId)
+    const parsed = PatchSchema.safeParse(await readJson(req))
+    if (!parsed.success) return invalidRequest(parsed.error)
 
-    const repo = await updateRepoWebhook(params.repoId, parsed.data)
-    return Response.json({ repo })
+    if (parsed.data.autopilotEnabled === true && !repo.autopilotEnabled) {
+      const [plan, used] = await Promise.all([getUserPlan(userId), countAutopilotRepos(userId)])
+      const max = limitFor(plan.id, 'repos')
+      if (used + 1 > max) throw new PlanError(limitReachedBody('repos', used, max, plan.id))
+    }
+
+    const updated = await updateRepoSettings(params.repoId, parsed.data)
+    return Response.json({ repo: toClientRepo(updated) })
   } catch (err) {
-    const res = ownershipErrorToResponse(err)
+    const res = ownershipErrorToResponse(err) ?? planErrorToResponse(err)
     if (res) return res
     throw err
   }
@@ -33,26 +42,23 @@ export async function PATCH(req: Request, { params }: { params: { repoId: string
 
 export async function DELETE(_req: Request, { params }: { params: { repoId: string } }) {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = session?.user?.id
+  if (!userId) return unauthorized()
 
   try {
-    await requireRepoOwner(params.repoId, session.user.id)
+    await requireRepoOwner(params.repoId, userId)
     const repo = await getRepo(params.repoId)
 
-    // Best-effort webhook cleanup on the GitHub side. Failures here are non-fatal —
-    // the user can always remove the webhook manually from GitHub's settings UI.
+    // Best-effort webhook cleanup on GitHub. Failures are non-fatal: the user
+    // can always remove the webhook from GitHub's settings.
     if (repo?.webhookId) {
       try {
-        const [account] = await db.select().from(accounts)
-          .where(and(eq(accounts.userId, session.user.id), eq(accounts.provider, 'github')))
-          .limit(1)
-        if (account?.access_token) {
+        const accessToken = await getGithubAccessToken(userId)
+        if (accessToken) {
           const { owner, repo: repoName } = splitFullName(repo.fullName)
-          const octokit = createOctokit(account.access_token)
-          await removeRepoWebhook({ octokit, owner, repo: repoName, webhookId: repo.webhookId })
+          await removeRepoWebhook({ octokit: createOctokit(accessToken), owner, repo: repoName, webhookId: repo.webhookId })
         }
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.warn('[repo delete] webhook cleanup failed', err)
       }
     }

@@ -1,22 +1,29 @@
 import { cn } from '@/lib/utils'
+import { Spinner, type SpinnerSize } from '@/components/ui/spinner'
 
 interface LoadingSpinnerProps {
+  /** Visible text next to the spinner, also announced to screen readers. */
+  label?: string
   className?: string
+  /** Kept for older call sites. */
   size?: 'sm' | 'md' | 'lg'
 }
 
-const SIZES = { sm: 'h-4 w-4', md: 'h-6 w-6', lg: 'h-8 w-8' }
+const SIZE: Record<NonNullable<LoadingSpinnerProps['size']>, SpinnerSize> = {
+  sm: 14,
+  md: 16,
+  lg: 24,
+}
 
-export function LoadingSpinner({ className, size = 'md' }: LoadingSpinnerProps) {
+/** Compatibility wrapper around Spinner. Prefer Skeletons shaped like the content for page loads. */
+export function LoadingSpinner({ label, className, size = 'md' }: LoadingSpinnerProps) {
+  if (!label) {
+    return <Spinner size={SIZE[size]} label="Loading" className={cn('text-fg-subtle', className)} />
+  }
   return (
-    <svg
-      className={cn('animate-spin text-slate-400', SIZES[size], className)}
-      xmlns="http://www.w3.org/2000/svg"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-    </svg>
+    <span role="status" className={cn('inline-flex items-center gap-2 text-sm text-fg-muted', className)}>
+      <Spinner size={SIZE[size]} className="text-fg-subtle" />
+      <span>{label}</span>
+    </span>
   )
 }

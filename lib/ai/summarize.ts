@@ -5,7 +5,9 @@ import { normalizeCommitSummary } from './normalize'
 import type { RawCommit } from '@/types/github'
 import type { CommitSummary } from '@/types/ai'
 
-const PROMPT_VERSION = '1.0'
+const PROMPT_VERSION = '2.0'
+/** Commits per model call. Large windows are summarised in batches. */
+const BATCH_SIZE = 80
 const MODEL = 'gemini-2.5-flash'
 
 function loadPrompt(): string {
@@ -29,15 +31,12 @@ function parseResponse(text: string): unknown[] {
   return JSON.parse(match[0])
 }
 
-export async function summarizeCommits(commits: RawCommit[]): Promise<{
+async function summarizeBatch(commits: RawCommit[]): Promise<{
   summaries: CommitSummary[]
-  _meta: { promptTokens: number; completionTokens: number; promptVersion: string; rawOutput: string }
+  promptTokens: number
+  completionTokens: number
+  rawOutput: string
 }> {
-  if (commits.length === 0) return {
-    summaries: [],
-    _meta: { promptTokens: 0, completionTokens: 0, promptVersion: PROMPT_VERSION, rawOutput: '' },
-  }
-
   const ai = getGeminiClient()
   const model = ai.getGenerativeModel({
     model: MODEL,
@@ -56,14 +55,36 @@ export async function summarizeCommits(commits: RawCommit[]): Promise<{
   const usage = result.response.usageMetadata
   const parsed = parseResponse(rawOutput)
   const summaries = parsed.map(normalizeCommitSummary)
-
   return {
     summaries,
+    promptTokens: usage?.promptTokenCount ?? 0,
+    completionTokens: usage?.candidatesTokenCount ?? 0,
+    rawOutput,
+  }
+}
+
+export async function summarizeCommits(commits: RawCommit[]): Promise<{
+  summaries: CommitSummary[]
+  _meta: { promptTokens: number; completionTokens: number; promptVersion: string; rawOutput: string }
+}> {
+  if (commits.length === 0) return {
+    summaries: [],
+    _meta: { promptTokens: 0, completionTokens: 0, promptVersion: PROMPT_VERSION, rawOutput: '' },
+  }
+
+  const batches: RawCommit[][] = []
+  for (let i = 0; i < commits.length; i += BATCH_SIZE) batches.push(commits.slice(i, i + BATCH_SIZE))
+
+  const results = []
+  for (const batch of batches) results.push(await summarizeBatch(batch))
+
+  return {
+    summaries: results.flatMap(r => r.summaries),
     _meta: {
-      promptTokens: usage?.promptTokenCount ?? 0,
-      completionTokens: usage?.candidatesTokenCount ?? 0,
+      promptTokens: results.reduce((a, r) => a + r.promptTokens, 0),
+      completionTokens: results.reduce((a, r) => a + r.completionTokens, 0),
       promptVersion: PROMPT_VERSION,
-      rawOutput,
+      rawOutput: results.map(r => r.rawOutput).join(String.fromCharCode(10)),
     },
   }
 }

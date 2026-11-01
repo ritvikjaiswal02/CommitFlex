@@ -1,193 +1,276 @@
-import { auth } from '@/auth'
-import { redirect } from 'next/navigation'
-import { getUserRepos } from '@/lib/db/queries/repos'
+import type { Metadata } from 'next'
+import { TZDate } from '@date-fns/tz'
+import { addDays, format } from 'date-fns'
+import { ChartNoAxesColumn, ChevronDown, Flame, GitMerge, Gauge, Timer } from 'lucide-react'
+import { AppShell } from '@/components/app-shell'
+import { ButtonLink } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
+import { ErrorState } from '@/components/ui/error-state'
+import { PageHeader } from '@/components/ui/page-header'
+import { Stat, StatGroup } from '@/components/ui/stat'
+import { PaywallGate } from '@/components/billing/paywall-gate'
+import { getPublishStats, listPublishedTimes, listShipOutcomes } from '@/lib/db/queries/publish'
+import { getAutopilotSettings } from '@/lib/db/queries/autopilot'
+import { cadenceTargetPerWeek, formatDuration, postingStreakWeeks, shipToPost } from '@/lib/insights'
 import { getUserJobs } from '@/lib/db/queries/jobs'
-import { AppShell } from '@/components/app-sidebar'
+import { getUserRepos } from '@/lib/db/queries/repos'
+import { planHasFeature } from '@/lib/billing/catalog'
+import type { JobTrigger, PublishMethod } from '@/types/autopilot'
+import { BarList, StackedBarChart, type StackDatum } from '@/components/app/charts'
+import { RangePicker, type AnalyticsRange } from '@/components/app/range-picker'
+import { METHOD_LABELS, triggerLabel } from '@/components/app/queue-meta'
+import { dayKey, pluralize } from '@/components/app/format'
+import { loadPublishingContext, requireAppUser, settle, valueOr } from '@/components/app/server-context'
 
-const TERMINAL_OK = new Set(['completed', 'partial_completed'])
+export const metadata: Metadata = { title: 'Insights' }
+export const dynamic = 'force-dynamic'
 
-export default async function AnalyticsPage() {
-  const session = await auth()
-  if (!session?.user?.id) redirect('/login')
+const RANGES: readonly AnalyticsRange[] = ['7', '30', '90']
 
-  const [repos, jobs] = await Promise.all([
-    getUserRepos(session.user.id),
-    getUserJobs(session.user.id, 200),
+function isRange(value: unknown): value is AnalyticsRange {
+  return typeof value === 'string' && (RANGES as readonly string[]).includes(value)
+}
+
+/** The last `days` calendar days in `tz`, oldest first, plus the instant the first one starts. */
+function windowDays(days: number, tz: string, now: Date) {
+  const today = new TZDate(now.getTime(), tz)
+  const start = new TZDate(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1), 0, 0, 0, 0, tz)
+  const keys: { key: string; short: string; long: string }[] = []
+  for (let i = 0; i < days; i++) {
+    const d = addDays(start, i)
+    keys.push({ key: format(d, 'yyyy-MM-dd'), short: format(d, 'd MMM'), long: format(d, 'EEE, d MMM') })
+  }
+  return { from: new Date(start.getTime()), keys }
+}
+
+function Section({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id: string
+  title: string
+  description?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section aria-labelledby={id} className="rounded-lg border border-line bg-surface p-4 sm:p-5">
+      <h2 id={id} className="text-base font-semibold text-fg">
+        {title}
+      </h2>
+      {description && <p className="mt-0.5 text-sm text-fg-muted">{description}</p>}
+      <div className="mt-4">{children}</div>
+    </section>
+  )
+}
+
+export default async function InsightsPage({ searchParams }: { searchParams: { range?: string } }) {
+  const { user, timezone } = await requireAppUser('/analytics')
+  const publishing = await loadPublishingContext(user.id)
+  const planId = publishing.plan?.id ?? 'free'
+  const advanced = planHasFeature(planId, 'analytics.advanced')
+  const requested: AnalyticsRange = isRange(searchParams.range) ? searchParams.range : advanced ? '30' : '7'
+  const range: AnalyticsRange = advanced ? requested : '7'
+  const days = Number(range)
+  const now = new Date()
+  const { from, keys } = windowDays(days, timezone, now)
+
+  const yearAgo = new Date(now.getTime() - 365 * 24 * 3600_000)
+  const [stats, jobs, repos, publishedTimes, shipOutcomes, settings] = await Promise.all([
+    settle(getPublishStats(user.id, { from, to: now }), 'getPublishStats'),
+    settle(getUserJobs(user.id, 300), 'getUserJobs'),
+    settle(getUserRepos(user.id), 'getUserRepos'),
+    settle(listPublishedTimes(user.id, yearAgo), 'listPublishedTimes'),
+    settle(listShipOutcomes(user.id, { from, to: now }), 'listShipOutcomes'),
+    settle(getAutopilotSettings(user.id), 'getAutopilotSettings'),
   ])
 
-  // ── Real metrics ────────────────────────────────────────────────────────
-  const totalGenerations = jobs.length
-  const completedGenerations = jobs.filter(j => j.status === 'completed').length
-  const completionRate = totalGenerations > 0 ? Math.round((completedGenerations / totalGenerations) * 100) : 0
-  const failedGenerations = jobs.filter(j => j.status === 'failed').length
+  const header = (
+    <PageHeader
+      title="Insights"
+      description="Whether posting in public is keeping up with what you ship."
+      actions={<RangePicker value={range} advanced={advanced} />}
+    />
+  )
 
-  // 7-day trend
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(today); day.setDate(day.getDate() - (6 - i))
-    const next = new Date(day); next.setDate(next.getDate() + 1)
-    const dayJobs = jobs.filter(j => j.createdAt >= day && j.createdAt < next)
+  if (!stats.ok) {
+    return (
+      <AppShell user={user}>
+        {header}
+        <div className="rounded-lg border border-line bg-surface px-5">
+          <ErrorState title="Insights didn't load" description="We couldn't reach the database. Reload the page in a moment." />
+        </div>
+      </AppShell>
+    )
+  }
+
+  const { byDay, byTrigger, byMethod, totals } = stats.value
+  const dayMap = new Map(byDay.map((d) => [d.date, d]))
+  const chartData: StackDatum[] = keys.map((k) => {
+    const row = dayMap.get(k.key)
+    const linkedin = row?.linkedin ?? 0
+    const twitter = row?.twitter ?? 0
+    const values: Record<string, number> = advanced ? { linkedin, twitter } : { total: linkedin + twitter }
     return {
-      label: day.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase(),
-      generations: dayJobs.length,
-      completions: dayJobs.filter(j => TERMINAL_OK.has(j.status)).length,
+      label: k.short,
+      longLabel: k.long,
+      values,
     }
   })
-  const maxDay = Math.max(1, ...days.map(d => d.generations))
-  const thisWeekTotal = days.reduce((a, d) => a + d.generations, 0)
+  const series = advanced
+    ? [
+        { key: 'linkedin', label: 'LinkedIn', className: 'bg-accent' },
+        { key: 'twitter', label: 'X', className: 'bg-fg/60' },
+      ]
+    : [{ key: 'total', label: 'Published', className: 'bg-accent' }]
 
-  // Repo distribution
-  const byRepo = new Map<string, number>()
-  for (const j of jobs) byRepo.set(j.repoId, (byRepo.get(j.repoId) ?? 0) + 1)
-  const repoMap = new Map(repos.map(r => [r.id, r.fullName]))
-  const repoStats = Array.from(byRepo.entries())
-    .map(([id, count]) => ({ name: repoMap.get(id) ?? '—', count }))
+  const linkedinTotal = byDay.reduce((sum, d) => sum + d.linkedin, 0)
+  const twitterTotal = byDay.reduce((sum, d) => sum + d.twitter, 0)
+
+  // Consistency: the numbers a builder posting in public cares about.
+  const streak = postingStreakWeeks(valueOr(publishedTimes, []), timezone, now)
+  const weeks = days / 7
+  const perWeek = totals.published / weeks
+  const target = settings.ok ? cadenceTargetPerWeek(settings.value.cadence, settings.value.postDays) : null
+  const ships = shipToPost(valueOr(shipOutcomes, []))
+  const perWeekLabel = perWeek >= 10 ? String(Math.round(perWeek)) : String(Math.round(perWeek * 10) / 10)
+
+  const triggerRows = [...byTrigger]
+    .filter((t) => t.count > 0)
     .sort((a, b) => b.count - a.count)
-    .slice(0, 8)
-  const maxRepoCount = Math.max(1, ...repoStats.map(r => r.count))
-  const top = repoStats[0]
+    .map((t) => ({ key: t.trigger, label: triggerLabel(t.trigger as JobTrigger), value: t.count }))
+  const methodRows = [...byMethod]
+    .filter((m) => m.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .map((m) => ({ key: m.method, label: METHOD_LABELS[m.method as PublishMethod] ?? m.method, value: m.count }))
 
-  // Headline takeaway
-  const takeaway = thisWeekTotal === 0
-    ? 'No generations this week yet — kick one off from the dashboard.'
-    : top
-      ? `Most active repo this period: ${top.name} with ${top.count} generation${top.count === 1 ? '' : 's'}.`
-      : `${thisWeekTotal} generation${thisWeekTotal === 1 ? '' : 's'} in the last 7 days.`
+  const repoNames = new Map(valueOr(repos, []).map((r) => [r.id, r.fullName]))
+  const fromKey = keys[0]?.key ?? ''
+  const runsByRepo = new Map<string, number>()
+  for (const job of valueOr(jobs, [])) {
+    if (dayKey(job.createdAt, timezone) < fromKey) continue
+    runsByRepo.set(job.repoId, (runsByRepo.get(job.repoId) ?? 0) + 1)
+  }
+  const repoRows = Array.from(runsByRepo.entries())
+    .map(([id, count]) => ({
+      key: id,
+      label: <span className="font-mono text-xs">{repoNames.get(id) ?? 'Removed repository'}</span>,
+      value: count,
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8)
+
+  const nothing = totals.published === 0 && totals.drafted === 0 && repoRows.length === 0 && ships.ships === 0 && streak === 0
+  const topTrigger = triggerRows[0]
+  const summary =
+    totals.published > 0
+      ? `You posted ${pluralize(totals.published, 'time')} in the last ${days} days` +
+        (advanced && linkedinTotal > 0 && twitterTotal > 0 ? `: ${linkedinTotal} on LinkedIn and ${twitterTotal} on X.` : '.') +
+        (topTrigger ? ` ${topTrigger.label} produced the most drafts.` : '')
+      : totals.drafted > 0
+        ? `CommitFlex drafted ${pluralize(totals.drafted, 'post')} in the last ${days} days, and none went out yet. Approve a few from the queue.`
+        : null
 
   return (
-    <AppShell user={{ name: session.user.name, email: session.user.email, image: session.user.image }}>
-      {/* Header */}
-      <header className="mb-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-md">
-        <div>
-          <h1 className="font-display text-display-lg font-bold tracking-tighter text-on-surface">
-            Analytics
-          </h1>
-          <p className="text-on-surface-variant mt-1">
-            Your generation activity at a glance.
-          </p>
+    <AppShell user={user}>
+      {header}
+
+      {nothing ? (
+        <div className="rounded-lg border border-line bg-surface px-5">
+          <EmptyState
+            icon={ChartNoAxesColumn}
+            title={`No activity in the last ${days} days`}
+            description="Insights fill in as you ship and post: your posting streak, how many ships got a post, and how fast."
+            action={<ButtonLink href="/drafts/new">Draft a post</ButtonLink>}
+          />
         </div>
-        <div className="flex items-center gap-sm">
-          {['7D', '30D', '90D'].map((r, i) => (
-            <button
-              key={r}
-              className={`px-md py-sm rounded-md font-mono text-code-sm border transition-colors ${
-                i === 0
-                  ? 'bg-primary/10 text-primary border-primary/40'
-                  : 'border-white/8 text-on-surface-variant hover:border-white/20'
-              }`}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
-      </header>
+      ) : (
+        <div className="flex flex-col gap-8">
+          {summary && <p className="max-w-prose text-lg text-fg">{summary}</p>}
 
-      {/* Top row: trend chart + stat column */}
-      <div className="grid grid-cols-12 gap-lg mb-lg">
-        <section className="col-span-12 lg:col-span-8 glass-card rounded-xl p-lg">
-          <div className="flex justify-between items-baseline mb-md">
-            <div>
-              <h3 className="font-display text-base font-bold text-on-surface">Generations this week</h3>
-              <p className="font-mono text-code-sm text-on-surface-variant mt-1">
-                Daily volume across all connected repos.
-              </p>
-            </div>
-            <div className="flex gap-md font-mono text-code-sm">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-primary/40" /> Started</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-tertiary" /> Completed</span>
-            </div>
-          </div>
-          {/* Chart */}
-          <div className="h-[200px] flex items-end gap-3">
-            {days.map((d, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                <div className="w-full flex items-end gap-1 h-[160px]">
-                  <div
-                    className="flex-1 rounded-t bg-primary/30 hover:bg-primary/50 transition-colors"
-                    style={{ height: `${(d.generations / maxDay) * 100}%`, minHeight: '4px' }}
-                    title={`${d.generations} started`}
-                  />
-                  <div
-                    className="flex-1 rounded-t bg-tertiary hover:opacity-80 transition-opacity"
-                    style={{ height: `${(d.completions / maxDay) * 100}%`, minHeight: '4px' }}
-                    title={`${d.completions} completed`}
-                  />
-                </div>
-                <span className="font-mono text-code-sm text-on-surface-variant uppercase">{d.label}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+          <StatGroup columns={4}>
+            <Stat
+              label="Posting streak"
+              icon={Flame}
+              value={streak === 0 ? 'None' : pluralize(streak, 'week')}
+              hint={streak > 0 ? 'Weeks in a row with a post' : 'Post this week to start one'}
+            />
+            <Stat
+              label="Posts per week"
+              icon={Gauge}
+              value={perWeekLabel}
+              hint={target !== null ? `Your cadence aims for ${target}` : 'Ship moments set the pace'}
+            />
+            <Stat
+              label="Ship-to-post rate"
+              icon={GitMerge}
+              value={ships.rate === null ? 'No ships' : `${Math.round(ships.rate * 100)}%`}
+              hint={ships.ships > 0 ? `${ships.posted} of ${pluralize(ships.ships, 'merge or release', 'merges and releases')} posted` : 'Merged PRs and releases'}
+            />
+            <Stat
+              label="Merge to post"
+              icon={Timer}
+              value={ships.medianLagMs === null ? 'Not yet' : formatDuration(ships.medianLagMs)}
+              hint="Median time from shipping to posting"
+            />
+          </StatGroup>
 
-        <aside className="col-span-12 lg:col-span-4 flex flex-col gap-md">
-          <div className="glass-card rounded-xl p-lg">
-            <p className="font-mono text-label-caps uppercase tracking-widest text-on-surface-variant">
-              Completion rate
-            </p>
-            <p className="font-display text-display-lg font-bold text-tertiary mt-2">
-              {completionRate}<span className="text-base text-on-surface-variant">%</span>
-            </p>
-            <p className="font-mono text-code-sm text-on-surface-variant mt-1">
-              {completedGenerations} of {totalGenerations} succeeded
-            </p>
-          </div>
-          <div className="glass-card rounded-xl p-lg">
-            <p className="font-mono text-label-caps uppercase tracking-widest text-on-surface-variant">
-              Total generations
-            </p>
-            <p className="font-display text-display-lg font-bold text-on-surface mt-2">
-              {totalGenerations.toLocaleString()}
-            </p>
-            <p className="font-mono text-code-sm text-on-surface-variant mt-1">
-              {failedGenerations > 0 ? `${failedGenerations} failed · ${repos.length} repo${repos.length === 1 ? '' : 's'}` : `${repos.length} repo${repos.length === 1 ? '' : 's'}`}
-            </p>
-          </div>
-        </aside>
-      </div>
+          <Section
+            id="analytics-daily"
+            title="Published per day"
+            description={advanced ? 'By platform, in your timezone.' : 'In your timezone. Pro splits this by platform.'}
+          >
+            <StackedBarChart data={chartData} series={series} title={`Posts published per day, last ${days} days`} />
+          </Section>
 
-      {/* Generations per repository — full width since we dropped the fake themes panel */}
-      <section className="glass-card rounded-xl p-lg mb-lg">
-        <h3 className="font-display text-base font-bold text-on-surface mb-md">Generations per repository</h3>
-        <div className="space-y-3">
-          {repoStats.length === 0 && (
-            <p className="font-mono text-code-sm text-outline-variant py-6 text-center">
-              No generations yet.
-            </p>
-          )}
-          {repoStats.map(r => (
-            <div key={r.name}>
-              <div className="flex justify-between font-mono text-code-sm mb-1">
-                <span className="text-on-surface truncate">{r.name}</span>
-                <span className="text-on-surface-variant">{r.count}</span>
-              </div>
-              <div className="h-1.5 rounded-full bg-white/8 overflow-hidden">
-                <div
-                  className="h-full bg-primary rounded-full transition-all"
-                  style={{ width: `${(r.count / maxRepoCount) * 100}%` }}
+          <PaywallGate
+            plan={planId}
+            feature="analytics.advanced"
+            title="See what your posts came from"
+            description="Pro breaks posts down by what triggered them: merged PRs, releases or the weekly digest."
+          >
+            <Section id="analytics-trigger" title="Posts by source" description="What started the run each post came from.">
+              <BarList
+                title="Posts by source"
+                rows={triggerRows}
+                empty={<p className="text-sm text-fg-muted">Nothing published in this range.</p>}
+              />
+            </Section>
+          </PaywallGate>
+
+          <details className="group rounded-lg border border-line bg-surface">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-4 py-3 text-sm font-medium text-fg focus-ring-surface sm:px-5 [&::-webkit-details-marker]:hidden">
+              Details
+              <ChevronDown className="size-4 text-fg-subtle transition-transform duration-180 group-open:rotate-180" strokeWidth={1.75} aria-hidden="true" />
+            </summary>
+            <div className="grid grid-cols-1 gap-8 border-t border-line p-4 sm:p-5 lg:grid-cols-2">
+              <div className="flex flex-col gap-3">
+                <h3 className="text-sm font-semibold text-fg">How posts went out</h3>
+                <BarList
+                  title="How posts went out"
+                  rows={methodRows}
+                  barClassName="bg-success"
+                  empty={<p className="text-sm text-fg-muted">Nothing published in this range.</p>}
                 />
               </div>
+              <div className="flex flex-col gap-3">
+                <h3 className="text-sm font-semibold text-fg">Runs per repository</h3>
+                <BarList
+                  title="Runs per repository"
+                  rows={repoRows}
+                  barClassName="bg-fg/40"
+                  empty={<p className="text-sm text-fg-muted">No runs in this range.</p>}
+                />
+              </div>
+              <p className="text-sm text-fg-muted lg:col-span-2">
+                {pluralize(totals.drafted, 'draft')} written, {totals.approved} approved and {totals.failed} failed in the
+                last {days} days.
+              </p>
             </div>
-          ))}
+          </details>
         </div>
-      </section>
-
-      {/* Takeaway — clear english, no faux-terminal noise */}
-      <section className="relative overflow-hidden glass-card rounded-xl p-xl">
-        <div className="absolute inset-0 pointer-events-none cf-glow-primary opacity-40" />
-        <div className="relative">
-          <p className="font-mono text-label-caps uppercase tracking-widest text-primary mb-sm">
-            This week at a glance
-          </p>
-          <h3 className="font-display text-headline-md font-bold text-on-surface mb-sm">
-            {takeaway}
-          </h3>
-          <p className="text-on-surface-variant leading-relaxed max-w-3xl">
-            {totalGenerations === 0
-              ? 'Connect a repo and run your first generation to start seeing data here.'
-              : `You've shipped ${totalGenerations.toLocaleString()} generation${totalGenerations === 1 ? '' : 's'} across ${repos.length} repo${repos.length === 1 ? '' : 's'}, with a ${completionRate}% completion rate. Keep an eye on the chart above — sustained daily activity translates to a steadier social cadence.`}
-          </p>
-        </div>
-      </section>
+      )}
     </AppShell>
   )
 }

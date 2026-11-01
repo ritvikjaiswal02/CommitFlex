@@ -3,19 +3,14 @@ import { auth } from '@/auth'
 import { createOctokit } from '@/lib/github/client'
 import { GET } from '@/app/api/github/repos/route'
 
-const mockDbLimit = vi.fn()
+import { getGithubAccessToken } from '@/lib/db/queries/integrations'
 
 vi.mock('@/auth', () => ({ auth: vi.fn() }))
-vi.mock('@/lib/db/client', () => ({
-  db: {
-    select: () => ({ from: () => ({ where: () => ({ limit: mockDbLimit }) }) }),
-  },
-}))
+vi.mock('@/lib/db/queries/integrations', () => ({ getGithubAccessToken: vi.fn() }))
 vi.mock('@/lib/github/client', () => ({
   createOctokit: vi.fn(),
 }))
 
-const mockAccount = { access_token: 'ghs_token', userId: 'user-1', provider: 'github' }
 
 const mockGitHubRepos = [
   {
@@ -42,9 +37,20 @@ const mockGitHubRepos = [
   },
 ]
 
+const iteratorCalls: unknown[][] = []
+let pages: unknown[][] = []
+
 const mockOctokit = {
   repos: {
-    listForAuthenticatedUser: vi.fn().mockResolvedValue({ data: mockGitHubRepos }),
+    listForAuthenticatedUser: vi.fn(),
+  },
+  paginate: {
+    iterator: vi.fn((...args: unknown[]) => {
+      iteratorCalls.push(args)
+      return (async function* () {
+        for (const data of pages) yield { data }
+      })()
+    }),
   },
 }
 
@@ -54,9 +60,10 @@ function makeRequest() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockDbLimit.mockResolvedValue([mockAccount])
+  vi.mocked(getGithubAccessToken).mockResolvedValue('ghs_token')
   vi.mocked(createOctokit).mockReturnValue(mockOctokit as any)
-  mockOctokit.repos.listForAuthenticatedUser.mockResolvedValue({ data: mockGitHubRepos })
+  iteratorCalls.length = 0
+  pages = [mockGitHubRepos]
 })
 
 describe('GET /api/github/repos', () => {
@@ -68,7 +75,7 @@ describe('GET /api/github/repos', () => {
 
   it('returns 400 when no GitHub account connected', async () => {
     vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
-    mockDbLimit.mockResolvedValue([])
+    vi.mocked(getGithubAccessToken).mockResolvedValue(null)
     const res = await GET()
     expect(res.status).toBe(400)
     const data = await res.json()
@@ -96,12 +103,27 @@ describe('GET /api/github/repos', () => {
     expect(repo.language).toBe('TypeScript')
   })
 
-  it('calls octokit with correct options', async () => {
+  it('pages through every repository the user can access, organisations included', async () => {
     vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
     await GET()
-    expect(mockOctokit.repos.listForAuthenticatedUser).toHaveBeenCalledWith(
-      expect.objectContaining({ sort: 'updated', type: 'owner' })
+    expect(iteratorCalls[0][0]).toBe(mockOctokit.repos.listForAuthenticatedUser)
+    expect(iteratorCalls[0][1]).toEqual(
+      expect.objectContaining({ affiliation: 'owner,collaborator,organization_member', sort: 'pushed', per_page: 100 }),
     )
+  })
+
+  it('reads every page and flags admin access and owner type', async () => {
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1', login: 'user' } } as any)
+    pages = [
+      [{ ...mockGitHubRepos[0], owner: { login: 'user', type: 'User' }, permissions: { admin: true, push: true } }],
+      [{ ...mockGitHubRepos[1], id: 3, full_name: 'acme/api', owner: { login: 'acme', type: 'Organization' }, permissions: { admin: false, push: true } }],
+    ]
+    const data = await (await GET()).json()
+    expect(data.repos).toHaveLength(2)
+    const org = data.repos.find((r: any) => r.fullName === 'acme/api')
+    expect(org).toMatchObject({ ownerType: 'org', personal: false, canAdmin: false, canPush: true })
+    const own = data.repos.find((r: any) => r.fullName === 'user/repo-one')
+    expect(own).toMatchObject({ ownerType: 'user', personal: true, canAdmin: true })
   })
 
   it('creates octokit with account token', async () => {

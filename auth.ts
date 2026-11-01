@@ -1,38 +1,52 @@
 import NextAuth from 'next-auth'
-import GitHub from 'next-auth/providers/github'
+import type { Adapter, AdapterAccount } from 'next-auth/adapters'
 import { DrizzleAdapter } from '@auth/drizzle-adapter'
+import { authConfig } from '@/auth.config'
 import { db } from '@/lib/db/client'
 import { accounts, sessions, users, verificationTokens } from '@/lib/db/schema'
+import { sealSecret } from '@/lib/auth/encrypt'
+import { storeGithubAccessToken } from '@/lib/db/queries/integrations'
 
-const useSecureCookies = process.env.NODE_ENV === 'production'
+const baseAdapter = DrizzleAdapter(db, {
+  usersTable: users,
+  accountsTable: accounts,
+  sessionsTable: sessions,
+  verificationTokensTable: verificationTokens,
+}) as Adapter
+
+/**
+ * The GitHub token can read private repos and manage webhooks, so it is
+ * stored encrypted (lib/auth/encrypt.ts sealSecret). getGithubAccessToken
+ * decrypts it.
+ */
+const adapter: Adapter = {
+  ...baseAdapter,
+  linkAccount: (account: AdapterAccount) =>
+    baseAdapter.linkAccount!({
+      ...account,
+      access_token: account.access_token ? sealSecret(account.access_token) : account.access_token,
+      refresh_token: account.refresh_token ? sealSecret(account.refresh_token) : account.refresh_token,
+    }),
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: DrizzleAdapter(db, {
-    usersTable: users,
-    accountsTable: accounts,
-    sessionsTable: sessions,
-    verificationTokensTable: verificationTokens,
-  }),
-  session: { strategy: 'jwt' },
-  trustHost: true,
-  useSecureCookies,
-  providers: [
-    GitHub({
-      clientId: process.env.GITHUB_CLIENT_ID!,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-      authorization: {
-        params: { scope: 'read:user user:email repo admin:repo_hook' },
-      },
-    }),
-  ],
-  callbacks: {
-    jwt: ({ token, user }) => {
-      if (user) token.sub = user.id
-      return token
+  ...authConfig,
+  adapter,
+  events: {
+    // Auth.js only writes the token when the account is first linked; keep it
+    // current (and encrypted) on every later sign-in too.
+    async signIn({ account, isNewUser }) {
+      if (isNewUser || !account || account.provider !== 'github' || !account.access_token) return
+      try {
+        await storeGithubAccessToken({
+          provider: account.provider,
+          providerAccountId: account.providerAccountId,
+          accessToken: account.access_token,
+          scope: account.scope ?? null,
+        })
+      } catch (err) {
+        console.error('[auth] could not refresh the stored GitHub token', err)
+      }
     },
-    session: ({ session, token }) => ({
-      ...session,
-      user: { ...session.user, id: token.sub! },
-    }),
   },
 })

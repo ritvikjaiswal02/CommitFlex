@@ -1,0 +1,74 @@
+/* Popup: 380px wide, the queue in a scrolling list between a fixed header and footer. */
+html,
+body {
+  margin: 0;
+  background: rgb(var(--c-surface));
+}
+body {
+  width: 380px;
+  min-height: 240px;
+  max-height: 580px;
+}
+.cx-popup {
+  display: flex;
+  flex-direction: column;
+  max-height: 580px;
+  min-height: 240px;
+}
+.cx-popup-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 10px 14px;
+  border-bottom: 1px solid rgb(var(--c-line));
+}
+.cx-popup-brand { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.02em; }
+.cx-popup-head .cx-spacer { flex: 1; }
+.cx-popup-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgb(var(--c-line));
+}
+.cx-popup-body { flex: 1; min-height: 120px; overflow-y: auto; overscroll-behavior: contain; }
+.cx-popup-body > .cx-callout { margin: 12px 14px 0; }
+.cx-popup-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid rgb(var(--c-line));
+  background: rgb(var(--c-sunken) / 0.5);
+}
+.cx-usage-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; line-height: 16px; color: rgb(var(--c-fg-muted)); }
+.cx-meter { height: 4px; border-radius: 999px; background: rgb(var(--c-line)); overflow: hidden; }
+.cx-meter > span { display: block; height: 100%; border-radius: inherit; background: rgb(var(--c-accent)); }
+.cx-meter[data-tone='warning'] > span { background: rgb(var(--c-warning)); }
+.cx-meter[data-tone='danger'] > span { background: rgb(var(--c-danger)); }
+
+.cx-connect { display: flex; flex-direction: column; gap: 16px; padding: 20px 16px; }
+.cx-connect-title { font-size: 18px; line-height: 28px; font-weight: 600; letter-spacing: -0.005em; }
+.cx-connect-steps { display: flex; flex-direction: column; gap: 10px; counter-reset: step; }
+.cx-connect-steps li { display: flex; gap: 10px; color: rgb(var(--c-fg-muted)); }
+.cx-connect-steps li::before {
+  counter-increment: step;
+  content: counter(step);
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgb(var(--c-line-strong));
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgb(var(--c-fg-muted));
+}
+.cx-divider { display: flex; align-items: center; gap: 10px; color: rgb(var(--c-fg-subtle)); font-size: 12px; }
+.cx-divider::before, .cx-divider::after { content: ''; flex: 1; height: 1px; background: rgb(var(--c-line)); }
+.cx-token-form { display: flex; gap: 8px; }
+.cx-token-form .cx-input { flex: 1; min-width: 0; }
+.cx-banner { margin: 12px 14px 0; }

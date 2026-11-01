@@ -1,13 +1,16 @@
 import { Resend } from 'resend'
 import { render } from '@react-email/components'
 import type { ReactElement } from 'react'
+import { emailFrom } from '@/lib/env'
 
 export interface SendEmailInput {
-  to: string
+  /** One address or several (each gets the same message). */
+  to: string | string[]
   subject: string
   react: ReactElement
   /** Optional plaintext fallback. If omitted, derived from the rendered HTML. */
   text?: string
+  replyTo?: string
 }
 
 export interface SendEmailResult {
@@ -27,7 +30,7 @@ function getClient(): Resend | null {
 }
 
 function fromAddress(): string {
-  return process.env.EMAIL_FROM ?? 'CommitFlex <onboarding@resend.dev>'
+  return emailFrom()
 }
 
 function htmlToText(html: string): string {
@@ -72,6 +75,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       subject: input.subject,
       html,
       text,
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
     })
     if (error) return { ok: false, error: error.message }
     return { ok: true, providerMessageId: data?.id }

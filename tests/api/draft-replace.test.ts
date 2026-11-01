@@ -21,8 +21,25 @@ vi.mock('@/lib/auth/require-owner', () => ({
   ownershipErrorToResponse: vi.fn().mockReturnValue(null),
 }))
 vi.mock('@/lib/db/queries/narratives', () => ({ getNarrativeByJob: vi.fn() }))
-vi.mock('@/lib/db/queries/voice', () => ({ getVoiceSettings: vi.fn() }))
+vi.mock('@/lib/db/queries/voice', () => ({ getVoiceSettings: vi.fn(), getVoiceProfile: vi.fn().mockResolvedValue(null) }))
+vi.mock('@/lib/db/queries/onboarding', () => ({
+  getUserProfile: vi.fn().mockResolvedValue(null),
+  buildAuthorContext: vi.fn().mockReturnValue(''),
+}))
+vi.mock('@/lib/db/queries/jobs', () => ({ getJob: vi.fn().mockResolvedValue(null) }))
+vi.mock('@/lib/plans', () => ({
+  assertFeature: vi.fn().mockResolvedValue({ id: 'pro' }),
+  assertWithinLimit: vi.fn().mockResolvedValue({ used: 0, max: 150 }),
+  reserveUsage: vi.fn().mockResolvedValue({ plan: { id: 'pro' }, count: 1, period: '2026-11' }),
+  refundUsage: vi.fn().mockResolvedValue(undefined),
+  planErrorToResponse: vi.fn().mockReturnValue(null),
+}))
+
 vi.mock('@/lib/ai/posts', () => ({ generatePost: vi.fn() }))
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: vi.fn(async () => ({ allowed: true, remaining: 19, resetAt: Date.now() + 60_000 })),
+  rateLimitResponse: vi.fn(() => Response.json({ error: 'Too many requests', code: 'rate_limited' }, { status: 429 })),
+}))
 
 const DRAFT_ID = 'draft-uuid-abcd'
 const existingDraft = { id: DRAFT_ID, userId: 'user-1', jobId: 'job-uuid-1234', platform: 'linkedin' }
@@ -101,7 +118,19 @@ describe('POST /api/drafts/[draftId]/replace', () => {
       'linkedin',
       expect.objectContaining({ theme: 'Theme', story: 'A story', technicalDepth: 7 }),
       expect.objectContaining({ tone: 'professional' }),
+      expect.objectContaining({ authorContext: null }),
     )
+  })
+
+  it('returns 402 when the monthly draft limit is reached', async () => {
+    const plans = await import('@/lib/plans')
+    const body = { error: 'limit', code: 'limit_reached', limit: 'generationsPerMonth', used: 10, max: 10, requiredPlan: 'pro', currentPlan: 'free' }
+    vi.mocked(plans.reserveUsage).mockRejectedValueOnce(Object.assign(new Error('limit'), { name: 'PlanError', status: 402, body }))
+    vi.mocked(plans.planErrorToResponse).mockReturnValueOnce(Response.json(body, { status: 402 }))
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
+    const res = await POST(makeRequest(validBody), makeParams())
+    expect(res.status).toBe(402)
+    expect(generatePost).not.toHaveBeenCalled()
   })
 
   it('persists Gemini output, ignoring request content', async () => {
@@ -125,6 +154,6 @@ describe('POST /api/drafts/[draftId]/replace', () => {
     vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
     const res = await POST(makeRequest({ platform: 'twitter', content: 'Twitter content here' }), makeParams())
     expect(res.status).toBe(201)
-    expect(generatePost).toHaveBeenCalledWith('twitter', expect.anything(), expect.anything())
+    expect(generatePost).toHaveBeenCalledWith('twitter', expect.anything(), expect.anything(), expect.anything())
   })
 })

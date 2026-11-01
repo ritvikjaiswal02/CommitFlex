@@ -1,18 +1,61 @@
-import * as React from "react"
+'use client'
 
-import { cn } from "@/lib/utils"
+import * as React from 'react'
+import { cn } from '@/lib/utils'
+import { fieldControlClass } from '@/components/ui/input'
 
-function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
-  return (
-    <textarea
-      data-slot="textarea"
-      className={cn(
-        "flex field-sizing-content min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
-        className
-      )}
-      {...props}
-    />
-  )
+export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  /** Grows with its content instead of showing a scrollbar. */
+  autoResize?: boolean
+  invalid?: boolean
 }
 
-export { Textarea }
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? React.useEffect : React.useLayoutEffect
+
+export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
+  { className, autoResize = false, invalid, onChange, value, rows = 4, ...props },
+  forwardedRef,
+) {
+  const innerRef = React.useRef<HTMLTextAreaElement | null>(null)
+
+  const setRefs = React.useCallback(
+    (node: HTMLTextAreaElement | null) => {
+      innerRef.current = node
+      if (typeof forwardedRef === 'function') forwardedRef(node)
+      else if (forwardedRef) forwardedRef.current = node
+    },
+    [forwardedRef],
+  )
+
+  const resize = React.useCallback(() => {
+    const el = innerRef.current
+    if (!el || !autoResize) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight + 2}px`
+  }, [autoResize])
+
+  useIsomorphicLayoutEffect(() => {
+    resize()
+  }, [resize, value])
+
+  return (
+    <textarea
+      ref={setRefs}
+      data-slot="textarea"
+      rows={rows}
+      value={value}
+      {...props}
+      aria-invalid={invalid ? true : props['aria-invalid']}
+      onChange={(e) => {
+        onChange?.(e)
+        if (value === undefined) resize()
+      }}
+      className={cn(
+        fieldControlClass,
+        'block min-h-[88px] px-3 py-2 leading-6',
+        autoResize ? 'resize-none overflow-hidden' : 'resize-y',
+        className,
+      )}
+    />
+  )
+})

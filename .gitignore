@@ -48,3 +48,6 @@ next-env.d.ts
 docs/superpowers/
 .history/
 .cursor/
+
+# extension zip packed by `pnpm build` (served at /extension/download)
+/public/commitflex-extension.zip

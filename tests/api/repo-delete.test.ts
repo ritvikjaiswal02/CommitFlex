@@ -11,6 +11,8 @@ vi.mock('@/lib/db/queries/repos', () => ({
   createRepo: vi.fn(),
   getRepo: vi.fn(),
 }))
+vi.mock('@/lib/db/queries/integrations', () => ({ getGithubAccessToken: vi.fn().mockResolvedValue(null) }))
+vi.mock('@/lib/plans', () => ({}))
 vi.mock('@/lib/auth/require-owner', () => ({
   requireRepoOwner: vi.fn(),
   requireDraftOwner: vi.fn(),

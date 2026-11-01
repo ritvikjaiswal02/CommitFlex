@@ -25,6 +25,9 @@ vi.mock('@/lib/auth/require-owner', () => ({
   requireRepoOwner: vi.fn(),
   ownershipErrorToResponse: vi.fn().mockReturnValue(null),
 }))
+vi.mock('@/lib/db/queries/autopilot', () => ({
+  listQueue: vi.fn().mockResolvedValue([]),
+}))
 vi.mock('@/lib/db/queries/repos', () => ({
   getRepo: vi.fn(),
   getUserRepos: vi.fn(),
@@ -75,6 +78,7 @@ describe('GET /api/jobs/[jobId]', () => {
     const data = await res.json()
     expect(data.job.id).toBe(JOB_ID)
     expect(data.drafts).toHaveLength(2)
+    expect(data.queue).toEqual([])
   })
 
   it('enforces job ownership', async () => {
@@ -103,9 +107,17 @@ describe('DELETE /api/jobs/[jobId]', () => {
 
   it('cancels job and returns 204', async () => {
     vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
+    vi.mocked(requireJobOwner).mockResolvedValue({ ...mockJob, status: 'summarizing' } as any)
     const res = await DELETE(makeDeleteRequest(), makeParams())
     expect(res.status).toBe(204)
     expect(updateJobStatus).toHaveBeenCalledWith(JOB_ID, 'cancelled')
+  })
+
+  it('returns 409 when the job already finished', async () => {
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'user-1' } } as any)
+    const res = await DELETE(makeDeleteRequest(), makeParams())
+    expect(res.status).toBe(409)
+    expect(updateJobStatus).not.toHaveBeenCalled()
   })
 
   it('enforces job ownership before cancelling', async () => {

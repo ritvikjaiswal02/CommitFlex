@@ -52,7 +52,7 @@ describe('summarizeCommits', () => {
     expect(result.summaries[0].sha).toBe('abc')
     expect(result.summaries[0].significance).toBe(6)
     expect(result._meta.promptTokens).toBe(100)
-    expect(result._meta.promptVersion).toBe('1.0')
+    expect(result._meta.promptVersion).toBe('2.0')
   })
 
   it('extracts JSON array embedded in prose', async () => {

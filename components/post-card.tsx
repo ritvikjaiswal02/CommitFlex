@@ -1,6 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import * as React from 'react'
+import { Check, ChevronDown, Copy, Layers, Lock, RefreshCw, Save } from 'lucide-react'
+import type { QueueItemView } from '@/types/autopilot'
+import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { SegmentedControl } from '@/components/ui/segmented-control'
+import { Slider } from '@/components/ui/slider'
+import { StatusLabel } from '@/components/ui/status-node'
+import { Textarea } from '@/components/ui/textarea'
+import { toast } from '@/components/ui/toast'
+import { PLATFORM_CHAR_LIMIT, PlatformIcon, platformLabel } from '@/components/brand/platform'
+import { useUpgrade } from '@/components/billing/upgrade-provider'
+import { useQueueActions } from '@/lib/hooks/use-queue-actions'
+import { DraftActions } from '@/components/app/draft-actions'
+import { CharacterCount } from '@/components/app/draft-editor-sheet'
+import { describeWhen, nodeStateFor } from '@/components/app/queue-meta'
 
 export interface PostCardVariant {
   id: string
@@ -10,123 +26,136 @@ export interface PostCardVariant {
   sequenceNumber: number
 }
 
-interface PostCardProps {
-  /** Single-variant compat fields (existing callers + tests). */
+export interface PostCardProps {
+  /** Single-draft form (used when `variants` is not given). */
   draftId?: string
   content?: string
   hashtags?: string[]
   status?: string
-  /** When set, takes precedence over the single fields above. */
+  /** Every version of this platform's post; takes precedence over the single fields. */
   variants?: PostCardVariant[]
   platform: 'linkedin' | 'twitter'
   onCopied?: () => void
   onVariantsCreated?: () => void
+  /** Queue state per draft id (null when the draft isn't queued). */
+  queueByDraft?: Record<string, QueueItemView | null | undefined>
+  onQueueItem?: (item: QueueItemView) => void
+  timezone?: string
+  linkedinDirect?: boolean
+  /** Plan includes `drafts.variants`. When false the control shows a Pro lock. */
+  canUseVariants?: boolean
+  suggestions?: string[]
+  className?: string
 }
 
-const PLATFORM_CONFIG = {
-  linkedin: { label: 'LinkedIn Post', limit: 3000, color: '#adc6ff', chip: 'chip-secondary' },
-  twitter:  { label: 'Twitter / X',   limit: 280,  color: '#d0bcff', chip: 'chip-primary' },
+const DIALS = [
+  { key: 'technical', label: 'Technical depth' },
+  { key: 'engagement', label: 'Hook strength' },
+  { key: 'creativity', label: 'Creative range' },
+] as const
+
+type DialKey = (typeof DIALS)[number]['key']
+
+function normalizeVariants(props: PostCardProps): PostCardVariant[] {
+  if (props.variants && props.variants.length > 0) return props.variants
+  return [
+    {
+      id: props.draftId ?? '',
+      content: props.content ?? '',
+      hashtags: props.hashtags ?? [],
+      status: props.status ?? 'generated',
+      sequenceNumber: 1,
+    },
+  ]
 }
 
-const LinkedInIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
-)
-const XIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.742l7.732-8.858L1.255 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-)
-const CopyIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-)
-const RefreshIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
-)
-const CheckIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-)
-const SparkIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>
-)
-
-function Slider({ label, value, onChange, disabled }: { label: string; value: number; onChange: (v: number) => void; disabled?: boolean }) {
-  return (
-    <div className="flex items-center gap-sm">
-      <span className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant w-20 shrink-0">
-        {label}
-      </span>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        value={value}
-        disabled={disabled}
-        onChange={e => onChange(Number(e.target.value))}
-        className="flex-1 accent-primary disabled:opacity-40"
-        aria-label={label}
-      />
-      <span className="font-mono text-code-sm tabular-nums text-on-surface w-8 text-right">{value}</span>
-    </div>
-  )
+async function readError(res: Response): Promise<string | null> {
+  const body = (await res.json().catch(() => ({}))) as { error?: unknown }
+  if (typeof body.error === 'string') return body.error
+  const err = body.error as { formErrors?: string[]; fieldErrors?: Record<string, string[]> } | undefined
+  return err?.formErrors?.[0] ?? Object.values(err?.fieldErrors ?? {}).flat()[0] ?? null
 }
 
+/**
+ * One platform's post from a run: edit it, switch between versions, write
+ * more versions, copy it, and move it through the queue.
+ */
 export function PostCard(props: PostCardProps) {
-  const { platform, onCopied, onVariantsCreated } = props
-  const cfg = PLATFORM_CONFIG[platform]
+  const {
+    platform,
+    onCopied,
+    onVariantsCreated,
+    queueByDraft,
+    onQueueItem,
+    timezone = 'UTC',
+    linkedinDirect = false,
+    canUseVariants = true,
+    suggestions,
+    className,
+  } = props
+  const { handlePlanError, openUpgrade } = useUpgrade()
+  const limit = PLATFORM_CHAR_LIMIT[platform]
+  const label = platformLabel(platform)
 
-  // Build a normalised variant list. If only the single-draft props are supplied
-  // (legacy callers + existing tests), wrap them in a one-element list.
-  const initialVariants: PostCardVariant[] =
-    props.variants && props.variants.length > 0
-      ? props.variants
-      : [{
-          id: props.draftId ?? '',
-          content: props.content ?? '',
-          hashtags: props.hashtags ?? [],
-          status: props.status ?? 'generated',
-          sequenceNumber: 1,
-        }]
+  const incoming = normalizeVariants(props)
+  const incomingKey = incoming.map((v) => `${v.id}:${v.content}:${v.status}`).join('|')
+  const [variants, setVariants] = React.useState<PostCardVariant[]>(incoming)
+  const [activeIdx, setActiveIdx] = React.useState(0)
 
-  const [variants, setVariants] = useState<PostCardVariant[]>(initialVariants)
-  const [activeIdx, setActiveIdx] = useState(0)
+  React.useEffect(() => {
+    setVariants(incoming)
+    setActiveIdx((i) => Math.min(i, incoming.length - 1))
+    // incomingKey captures every field the card renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingKey])
 
-  // Keep local state in sync if parent passes a fresh variant list (e.g. after refresh).
-  useEffect(() => {
-    if (props.variants && props.variants.length > 0) {
-      setVariants(props.variants)
-      setActiveIdx(i => Math.min(i, props.variants!.length - 1))
-    }
-  }, [props.variants])
+  const active = variants[Math.min(activeIdx, variants.length - 1)]
+  const [content, setContent] = React.useState(active.content)
+  const [savedContent, setSavedContent] = React.useState(active.content)
+  const [saving, setSaving] = React.useState(false)
+  const [justSaved, setJustSaved] = React.useState(false)
+  const [copying, setCopying] = React.useState(false)
+  const [copied, setCopied] = React.useState(active.status === 'copied')
+  const [regenerating, setRegenerating] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [tuneOpen, setTuneOpen] = React.useState(false)
+  const [dials, setDials] = React.useState<Record<DialKey, number>>({ technical: 50, engagement: 50, creativity: 50 })
+  const [writingVersions, setWritingVersions] = React.useState(false)
 
-  const active = variants[activeIdx]
-  const [content, setContent] = useState(active.content)
-  const [saving, setSaving] = useState(false)
-  const [copying, setCopying] = useState(false)
-  const [regenerating, setRegenerating] = useState(false)
-  const [variantsLoading, setVariantsLoading] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [copied, setCopied] = useState(active.status === 'copied')
-  const [error, setError] = useState<string | null>(null)
-
-  // Tone sliders
-  const [tuneOpen, setTuneOpen] = useState(false)
-  const [technical, setTechnical] = useState(50)
-  const [engagement, setEngagement] = useState(50)
-  const [creativity, setCreativity] = useState(50)
-
-  // When user switches tab, load that variant's content + status into editor state.
-  useEffect(() => {
+  // Switching versions loads that version into the editor.
+  React.useEffect(() => {
     setContent(active.content)
+    setSavedContent(active.content)
     setCopied(active.status === 'copied')
-    setSaved(false)
+    setJustSaved(false)
     setError(null)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Only on version change; content updates are handled below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active.id])
 
-  const overLimit = content.length > cfg.limit
-  const pct = Math.min(content.length / cfg.limit, 1)
-  const fullText = active.hashtags.length > 0 ? `${content}\n\n${active.hashtags.join(' ')}` : content
+  // New text from outside (a refresh or a rewrite) replaces the editor unless
+  // it is what we just saved.
+  const savedRef = React.useRef(savedContent)
+  savedRef.current = savedContent
+  React.useEffect(() => {
+    if (active.content !== savedRef.current) {
+      setContent(active.content)
+      setSavedContent(active.content)
+    }
+    if (active.status === 'copied') setCopied(true)
+  }, [active.content, active.status])
 
-  const handleSave = async () => {
-    if (!active.id) return
+  const actions = useQueueActions({ timezone, linkedinDirect, onItem: onQueueItem })
+  const queueItem = active.id ? queueByDraft?.[active.id] ?? null : null
+
+  const overLimit = content.length > limit
+  const dirty = content !== savedContent
+  const fullText = active.hashtags.length > 0 ? `${content}\n\n${active.hashtags.join(' ')}` : content
+  const busy = regenerating || writingVersions
+  const locked = queueItem?.status === 'published' || queueItem?.status === 'publishing'
+
+  const save = async () => {
+    if (!active.id || overLimit || !dirty) return
     setSaving(true)
     setError(null)
     try {
@@ -135,31 +164,34 @@ export function PostCard(props: PostCardProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
       })
-      if (!res.ok) throw new Error('Failed to save')
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    } catch {
-      setError('Failed to save')
+      if (!res.ok) throw new Error((await readError(res)) ?? 'Failed to save')
+      setSavedContent(content)
+      setVariants((prev) => prev.map((v) => (v.id === active.id ? { ...v, content } : v)))
+      setJustSaved(true)
+      window.setTimeout(() => setJustSaved(false), 2000)
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : 'Failed to save')
     } finally {
       setSaving(false)
     }
   }
 
-  const handleCopy = async () => {
+  const copy = async () => {
     setCopying(true)
+    setError(null)
     try {
       await navigator.clipboard.writeText(fullText)
       if (active.id) await fetch(`/api/drafts/${active.id}`, { method: 'POST' })
       setCopied(true)
       onCopied?.()
     } catch {
-      setError('Failed to copy')
+      setError('Failed to copy. Select the text and copy it manually.')
     } finally {
       setCopying(false)
     }
   }
 
-  const handleRegenerate = async () => {
+  const regenerate = async () => {
     if (!active.id) return
     setRegenerating(true)
     setError(null)
@@ -169,185 +201,238 @@ export function PostCard(props: PostCardProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform, content }),
       })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.draft?.originalContent) setContent(data.draft.originalContent)
+      if (res.status === 402 && (await handlePlanError(res))) return
+      if (!res.ok) throw new Error((await readError(res)) ?? 'Rewrite failed')
+      const data = (await res.json()) as { draft?: { originalContent?: string; platformMetadata?: { hashtags?: string[] } } }
+      const next = data.draft?.originalContent
+      if (next) {
+        setContent(next)
+        setSavedContent(next)
+        setVariants((prev) =>
+          prev.map((v) =>
+            v.id === active.id
+              ? { ...v, content: next, hashtags: data.draft?.platformMetadata?.hashtags ?? v.hashtags, status: 'generated' }
+              : v,
+          ),
+        )
+        toast.success('Rewritten', { description: 'The new version replaced this draft.' })
       }
-    } catch {
-      setError('Regeneration failed')
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : 'Rewrite failed')
     } finally {
       setRegenerating(false)
     }
   }
 
-  const handleGenerateVariants = async () => {
+  const writeVersions = async () => {
+    if (!canUseVariants) {
+      openUpgrade({ code: 'feature_locked', feature: 'drafts.variants' }, 'pro')
+      return
+    }
     if (!active.id) return
-    setVariantsLoading(true)
+    setWritingVersions(true)
     setError(null)
     try {
       const res = await fetch(`/api/drafts/${active.id}/variants`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ technical, engagement, creativity, count: 3 }),
+        body: JSON.stringify({ ...dials, count: 3 }),
       })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error?.formErrors?.[0] ?? data.error ?? 'Failed to generate variants')
-      }
+      if (res.status === 402 && (await handlePlanError(res))) return
+      if (!res.ok) throw new Error((await readError(res)) ?? "Couldn't write new versions")
+      toast.success('Three new versions are ready', { description: 'Switch between them above the text.' })
+      setTuneOpen(false)
       onVariantsCreated?.()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Variant generation failed')
+      setError(err instanceof Error && err.message ? err.message : "Couldn't write new versions")
     } finally {
-      setVariantsLoading(false)
+      setWritingVersions(false)
     }
   }
 
-  return (
-    <div
-      className={`glass-card rounded-xl flex flex-col overflow-hidden h-full ${regenerating || variantsLoading ? 'ai-focus' : ''}`}
-      style={{ borderLeft: `2px solid ${cfg.color}` }}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
-        <div className="flex items-center gap-2">
-          <span style={{ color: cfg.color }}>
-            {platform === 'linkedin' ? <LinkedInIcon /> : <XIcon />}
-          </span>
-          <span className={`chip ${cfg.chip}`}>{cfg.label}</span>
-          {copied && (
-            <span className="flex items-center gap-1 chip chip-success normal-case">
-              <CheckIcon /> Copied
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="h-1 rounded-full overflow-hidden bg-white/8" style={{ width: '36px' }}>
-            <div
-              className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${pct * 100}%`, background: overLimit ? '#ffb4ab' : cfg.color }}
-            />
-          </div>
-          <span
-            className="font-mono text-code-sm tabular-nums"
-            style={{ color: overLimit ? '#ffb4ab' : '#cbc3d7' }}
-          >
-            {content.length}<span className="text-outline-variant">/{cfg.limit}</span>
-          </span>
-        </div>
-      </div>
+  const textareaId = `post-${platform}-${active.id || 'new'}`
 
-      {/* Variant tabs */}
+  return (
+    <article
+      aria-label={`${label} post`}
+      aria-busy={busy || undefined}
+      className={cn('flex h-full flex-col rounded-lg border border-line bg-surface', className)}
+    >
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line px-4 py-3 sm:px-5">
+        <div className="flex items-center gap-2">
+          <PlatformIcon platform={platform} />
+          <h3 className="text-base font-semibold text-fg">{label} post</h3>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {copied && (
+            <Badge variant="success">
+              <Check aria-hidden="true" strokeWidth={2.5} />
+              Copied
+            </Badge>
+          )}
+          <StatusLabel state={nodeStateFor(queueItem?.status)} />
+        </div>
+      </header>
+
       {variants.length > 1 && (
-        <div className="flex items-center gap-1 px-4 pt-3 -mb-1 border-b border-white/5">
-          {variants.map((v, i) => {
-            const isActive = i === activeIdx
-            return (
-              <button
-                key={v.id}
-                onClick={() => setActiveIdx(i)}
-                className={`px-3 py-1.5 rounded-t-md font-mono text-code-sm uppercase tracking-widest border-b-2 transition-colors ${
-                  isActive
-                    ? 'border-primary text-primary bg-primary/5'
-                    : 'border-transparent text-on-surface-variant hover:text-on-surface'
-                }`}
-              >
-                v{v.sequenceNumber}
-              </button>
-            )
-          })}
-          <span className="ml-auto font-mono text-code-sm text-outline-variant">
-            {activeIdx + 1} / {variants.length}
-          </span>
+        <div className="border-b border-line px-4 py-2.5 sm:px-5">
+          <SegmentedControl
+            aria-label={`${label} versions`}
+            size="sm"
+            value={active.id}
+            onValueChange={(id) => setActiveIdx(Math.max(0, variants.findIndex((v) => v.id === id)))}
+            options={variants.map((v) => ({ value: v.id, label: `Version ${v.sequenceNumber}` }))}
+          />
         </div>
       )}
 
-      {/* Content */}
-      <div className="flex-1 flex flex-col p-4 gap-3">
-        <textarea
+      <div className="flex flex-1 flex-col gap-3 px-4 py-4 sm:px-5">
+        <label htmlFor={textareaId} className="sr-only">
+          {label} post text
+        </label>
+        <Textarea
+          id={textareaId}
           value={content}
-          onChange={e => setContent(e.target.value)}
-          className="flex-1 w-full min-h-[200px] resize-none text-sm leading-relaxed focus:outline-none bg-transparent text-on-surface placeholder:text-outline-variant"
-          placeholder={`Write your ${cfg.label} post here...`}
+          onChange={(e) => setContent(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+              e.preventDefault()
+              void save()
+            }
+          }}
+          autoResize
+          rows={8}
+          disabled={locked || busy}
+          invalid={overLimit}
+          placeholder={`Write your ${label} post`}
+          className={cn('min-h-[200px] text-base leading-7', busy && 'animate-pulse-soft')}
         />
 
         {active.hashtags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-2 border-t border-white/5">
-            {active.hashtags.map(tag => (
-              <span key={tag} className="font-mono text-code-sm" style={{ color: cfg.color, opacity: 0.7 }}>
-                {tag}
-              </span>
+          <ul className="flex flex-wrap gap-1.5" aria-label="Hashtags">
+            {active.hashtags.map((tag) => (
+              <li key={tag}>
+                <Badge variant="neutral">{tag}</Badge>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
 
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CharacterCount length={content.length} platform={platform} />
+          <span className="text-xs text-fg-subtle" aria-live="polite">
+            {justSaved ? 'Saved' : dirty ? 'Unsaved changes' : queueItem ? describeWhen(queueItem, timezone) : ''}
+          </span>
+        </div>
+
+        {overLimit && (
+          <p className="text-sm text-danger">
+            {label} allows {limit.toLocaleString('en-US')} characters. Trim {(content.length - limit).toLocaleString('en-US')} to save.
+          </p>
+        )}
         {error && (
-          <p className="font-mono text-code-sm text-error">{error}</p>
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
         )}
       </div>
 
-      {/* Tone tune panel */}
-      <div className="border-t border-white/8">
+      <div className="border-t border-line">
         <button
           type="button"
-          onClick={() => setTuneOpen(o => !o)}
+          onClick={() => setTuneOpen((o) => !o)}
           aria-expanded={tuneOpen}
-          className="w-full flex items-center justify-between px-4 py-2.5 font-mono text-code-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors"
+          aria-controls={`${textareaId}-versions`}
+          className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-sm font-medium text-fg-muted transition-colors duration-120 hover:text-fg focus-ring-inset sm:px-5"
         >
-          <span className="flex items-center gap-2">
-            <SparkIcon />
-            Tune voice
+          <span className="inline-flex items-center gap-2">
+            <Layers className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            Write more versions
+            {!canUseVariants && <Badge variant="accent">Pro</Badge>}
           </span>
-          <span className="text-outline-variant">{tuneOpen ? '−' : '+'}</span>
+          <ChevronDown
+            className={cn('size-4 transition-transform duration-180 ease-out', tuneOpen && 'rotate-180')}
+            strokeWidth={1.75}
+            aria-hidden="true"
+          />
         </button>
         {tuneOpen && (
-          <div className="px-4 pb-4 space-y-2.5 border-t border-white/5">
-            <div className="pt-3">
-              <Slider label="Technical"  value={technical}  onChange={setTechnical}  disabled={variantsLoading} />
-            </div>
-            <Slider label="Engagement" value={engagement} onChange={setEngagement} disabled={variantsLoading} />
-            <Slider label="Creativity" value={creativity} onChange={setCreativity} disabled={variantsLoading} />
-            <button
-              onClick={handleGenerateVariants}
-              disabled={variantsLoading || !active.id}
-              className="btn-primary-solid w-full h-9 rounded-lg font-mono text-label-caps uppercase flex items-center justify-center gap-1.5 disabled:opacity-40"
+          <div id={`${textareaId}-versions`} className="flex flex-col gap-4 px-4 pb-4 sm:px-5">
+            <p className="text-sm text-fg-muted">Adjust the direction, then CommitFlex writes three alternatives from the same work.</p>
+            {DIALS.map((dial) => (
+              <div key={dial.key} className="grid grid-cols-[120px_1fr_32px] items-center gap-3">
+                <span className="text-sm text-fg-muted">{dial.label}</span>
+                <Slider
+                  aria-label={dial.label}
+                  value={dials[dial.key]}
+                  onValueChange={(v) => setDials((d) => ({ ...d, [dial.key]: v }))}
+                  disabled={writingVersions || !canUseVariants}
+                />
+                <span className="text-right text-sm tabular-nums text-fg">{dials[dial.key]}</span>
+              </div>
+            ))}
+            <Button
+              variant="secondary"
+              onClick={writeVersions}
+              loading={writingVersions}
+              disabled={!active.id}
+              className="self-start"
             >
-              <SparkIcon />
-              {variantsLoading ? 'Generating 3 variants…' : 'Generate 3 variants'}
-            </button>
+              {!canUseVariants && <Lock strokeWidth={1.75} aria-hidden="true" />}
+              {writingVersions ? 'Writing 3 versions' : 'Write 3 versions'}
+            </Button>
           </div>
         )}
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2 px-4 py-3 border-t border-white/8 bg-black/20">
-        <button
-          onClick={handleSave}
-          disabled={saving || overLimit || !active.id}
-          className="btn-ghost flex-1 h-9 rounded-lg font-mono text-label-caps uppercase flex items-center justify-center gap-1.5 disabled:opacity-40"
-          style={saved ? { background: 'rgba(134,239,172,0.10)', color: '#86efac', borderColor: 'rgba(134,239,172,0.3)' } : undefined}
-        >
-          {saved ? <><CheckIcon /> Saved</> : saving ? 'Saving...' : 'Save'}
-        </button>
-
-        <button
-          onClick={handleRegenerate}
-          disabled={regenerating || !active.id}
-          className="btn-ghost h-9 w-9 rounded-lg flex items-center justify-center disabled:opacity-40"
-          title="Regenerate"
-        >
-          <span className={regenerating ? 'animate-spin' : ''}>
-            <RefreshIcon />
-          </span>
-        </button>
-
-        <button
-          onClick={handleCopy}
-          disabled={copying || overLimit}
-          className="btn-primary-solid flex-1 h-9 rounded-lg font-mono text-label-caps uppercase flex items-center justify-center gap-1.5 disabled:opacity-40"
-        >
-          {copying ? 'Copying...' : <><CopyIcon /> Copy post</>}
-        </button>
-      </div>
-    </div>
+      <footer className="flex flex-col gap-3 border-t border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={save}
+            loading={saving}
+            disabled={saving || overLimit || !active.id || !dirty}
+          >
+            {justSaved ? <Check strokeWidth={2} aria-hidden="true" /> : <Save strokeWidth={1.75} aria-hidden="true" />}
+            {justSaved ? 'Saved' : 'Save'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={copy}
+            loading={copying}
+            disabled={copying || overLimit}
+          >
+            <Copy strokeWidth={1.75} aria-hidden="true" />
+            Copy post
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={regenerate}
+            disabled={regenerating || !active.id || locked}
+            title="Regenerate"
+            aria-label="Rewrite this draft"
+          >
+            <RefreshCw strokeWidth={1.75} aria-hidden="true" className={cn(regenerating && 'motion-safe:animate-node-spin')} />
+          </Button>
+        </div>
+        {active.id && (
+          dirty ? (
+            <span className="text-sm text-fg-muted">Save your edits to queue this post.</span>
+          ) : (
+            <DraftActions
+              draft={{ draftId: active.id, platform, content: savedContent, hashtags: active.hashtags }}
+              item={queueItem}
+              actions={actions}
+              timezone={timezone}
+              linkedinDirect={linkedinDirect}
+              suggestions={suggestions}
+            />
+          )
+        )}
+      </footer>
+    </article>
   )
 }

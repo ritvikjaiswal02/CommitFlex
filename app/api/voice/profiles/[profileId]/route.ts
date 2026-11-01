@@ -1,54 +1,68 @@
 import { auth } from '@/auth'
 import { z } from 'zod'
+import { updateVoiceProfile, deleteVoiceProfile } from '@/lib/db/queries/voice'
 import {
-  getVoiceProfile,
-  updateVoiceProfile,
-  deleteVoiceProfile,
-} from '@/lib/db/queries/voice'
+  EXTRA_CONTEXT_MAX,
+  invalidRequest,
+  ownProfile,
+  serializeProfile,
+  serverError,
+  unauthorized,
+} from '../../_shared'
+
+export const dynamic = 'force-dynamic'
 
 const UpdateProfileSchema = z.object({
-  name: z.string().trim().min(1).max(60).optional(),
-  tone: z.string().min(1).max(50).optional(),
+  name: z.string().trim().min(1, 'Give the profile a name').max(60).optional(),
+  tone: z.string().trim().min(1).max(50).optional(),
   technicalLevel: z.number().int().min(1).max(10).optional(),
-  audience: z.string().min(1).max(100).optional(),
-  extraContext: z.string().max(2000).optional(),
+  audience: z.string().trim().min(1).max(100).optional(),
+  extraContext: z.string().max(EXTRA_CONTEXT_MAX).optional(),
 })
-
-async function ownProfile(profileId: string, userId: string) {
-  const profile = await getVoiceProfile(profileId)
-  if (!profile) return { error: Response.json({ error: 'Not found' }, { status: 404 }) }
-  if (profile.userId !== userId) return { error: Response.json({ error: 'Forbidden' }, { status: 403 }) }
-  return { profile }
-}
 
 export async function PATCH(req: Request, { params }: { params: { profileId: string } }) {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const own = await ownProfile(params.profileId, session.user.id)
-  if ('error' in own) return own.error
+  const userId = session?.user?.id
+  if (!userId) return unauthorized()
 
   const body = await req.json().catch(() => null)
   const parsed = UpdateProfileSchema.safeParse(body)
-  if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 })
+  if (!parsed.success) return invalidRequest(parsed.error.flatten())
 
-  const profile = await updateVoiceProfile(params.profileId, parsed.data)
-  return Response.json({ profile })
+  try {
+    const own = await ownProfile(params.profileId, userId)
+    if ('error' in own) return own.error
+    const profile = await updateVoiceProfile(params.profileId, parsed.data)
+    if (!profile) return Response.json({ error: 'Voice profile not found', code: 'not_found' }, { status: 404 })
+    return Response.json({ profile: serializeProfile(profile) })
+  } catch (err) {
+    console.error('[voice/profiles/:id] PATCH failed', err)
+    return serverError('We couldn’t save the profile. Try again.')
+  }
 }
 
 export async function DELETE(_req: Request, { params }: { params: { profileId: string } }) {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = session?.user?.id
+  if (!userId) return unauthorized()
 
-  const own = await ownProfile(params.profileId, session.user.id)
-  if ('error' in own) return own.error
+  try {
+    const own = await ownProfile(params.profileId, userId)
+    if ('error' in own) return own.error
 
-  const result = await deleteVoiceProfile(session.user.id, params.profileId)
-  if (!result.deleted) {
-    const msg = result.reason === 'last_profile'
-      ? 'Can’t delete your only voice profile. Add another first.'
-      : 'Profile not found'
-    return Response.json({ error: msg }, { status: 400 })
+    const result = await deleteVoiceProfile(userId, params.profileId)
+    if (!result.deleted) {
+      if (result.reason === 'last_profile') {
+        return Response.json(
+          { error: 'You need at least one voice profile. Add another before deleting this one.', code: 'last_profile' },
+          { status: 409 },
+        )
+      }
+      return Response.json({ error: 'Voice profile not found', code: 'not_found' }, { status: 404 })
+    }
+    return new Response(null, { status: 204 })
+  } catch (err) {
+    console.error('[voice/profiles/:id] DELETE failed', err)
+    return serverError('We couldn’t delete the profile. Try again.')
   }
-  return new Response(null, { status: 204 })
 }

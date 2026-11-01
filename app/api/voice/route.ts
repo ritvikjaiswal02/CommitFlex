@@ -1,30 +1,37 @@
 import { auth } from '@/auth'
 import { getVoiceSettings, upsertVoiceSettings } from '@/lib/db/queries/voice'
-import { z } from 'zod'
+import { VoiceFieldsSchema, invalidRequest, serverError, unauthorized } from './_shared'
 
-const VoiceSettingsSchema = z.object({
-  tone: z.string().min(1).max(50),
-  technicalLevel: z.number().int().min(1).max(10),
-  audience: z.string().min(1).max(100),
-  extraContext: z.string().max(2000).optional(),
-})
+export const dynamic = 'force-dynamic'
 
+/** GET /api/voice — the default voice profile in the shape the generator reads. */
 export async function GET() {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session?.user?.id) return unauthorized()
 
-  const settings = await getVoiceSettings(session.user.id)
-  return Response.json({ settings })
+  try {
+    const settings = await getVoiceSettings(session.user.id)
+    return Response.json({ settings })
+  } catch (err) {
+    console.error('[voice] GET failed', err)
+    return serverError('We couldn’t load your voice. Try again.')
+  }
 }
 
+/** PUT /api/voice — updates the default voice profile, creating it on first use. */
 export async function PUT(req: Request) {
   const session = await auth()
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session?.user?.id) return unauthorized()
 
   const body = await req.json().catch(() => null)
-  const parsed = VoiceSettingsSchema.safeParse(body)
-  if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 })
+  const parsed = VoiceFieldsSchema.safeParse(body)
+  if (!parsed.success) return invalidRequest(parsed.error.flatten())
 
-  const settings = await upsertVoiceSettings(session.user.id, parsed.data)
-  return Response.json({ settings })
+  try {
+    const settings = await upsertVoiceSettings(session.user.id, parsed.data)
+    return Response.json({ settings })
+  } catch (err) {
+    console.error('[voice] PUT failed', err)
+    return serverError('We couldn’t save your voice. Try again.')
+  }
 }
